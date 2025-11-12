@@ -9,3 +9,4 @@
 *.json
 *.csv
 *.jsonl
+*.parquet
