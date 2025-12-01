@@ -5,6 +5,9 @@ from torch.utils.data import DataLoader, Dataset
 import json
 import random
 from torch.nn.utils.rnn import pad_sequence
+from sklearn.preprocessing import StandardScaler
+from numpy import log
+import numpy as np
 
 THRESHOLD_TIMESTAMPS = 16
 L_SEQUENCE_LENGHT = 48
@@ -72,6 +75,64 @@ def main():
     print("Logits for RA1(Return to the same Aid in 1 days)")
     print(data_set_after_L.__RA1_task_logit___())
     
+    
+
+    scaler_time_elapsed = StandardScaler()
+    scaler_time_between = StandardScaler()
+
+    #Categorical Embeddings
+    aids_session = []
+    event_session = []
+
+    #Time Embeddings
+    log_delta_elapsed = []
+    log_between_time = []
+
+    for i, session in enumerate(data_set_after_L):
+        single_session = data_set_after_L[i]
+        aids_session.extend(single_session["aid"].tolist())
+        event_session.extend(single_session["type"].tolist())
+    
+    
+        
+        ts_last = single_session["timestamps"][-1]
+        ts_first = single_session["timestamps"][0]
+        
+        log_delta_elapsed.append(log(1 +  (ts_last.item() - ts_first.item())))
+
+        
+        deltas_this_session = []
+    
+        for j in range(len(single_session["timestamps"]) - 1):
+            delta_between_times = (single_session["timestamps"][j+1].item() - single_session["timestamps"][j].item())
+            deltas_this_session.append(log(1 + delta_between_times))
+        log_between_time.append(deltas_this_session)
+    
+    
+    #Categorical Embeddings
+    aid_vocab = sorted(set(aids_session))
+    type_event_vocab = sorted(set(event_session))
+    num_embeddings_aid = len(aid_vocab)
+    num_embeddings_event_type = len(type_event_vocab)
+
+    #Time Embeddings
+    array_time_elapsed = np.array(log_delta_elapsed).reshape(-1, 1)
+    standard_time_elapsed = scaler_time_elapsed.fit_transform(array_time_elapsed)
+
+
+    print("=====================================================")
+    flat_time_between = [d for session_list in log_between_time for d in session_list]
+    array_time_between = np.array(flat_time_between).reshape(-1, 1)
+    standard_time_between = scaler_time_between.fit_transform(array_time_between)
+
+    number_session = 0
+    session_standard_time_between = []
+    for session_list in log_between_time:
+        L = len(session_list)
+        session_standard_time_between.append(standard_time_between[number_session : number_session + L].flatten().tolist())
+        number_session += L
+    
+    
     train_loader = DataLoader(dataset=training_data_set, batch_size=64, collate_fn=custom_collate)
     
     testing_loader = DataLoader(dataset=testing_data_set, batch_size=64, collate_fn=custom_collate)
@@ -83,18 +144,36 @@ def main():
     print("============================================================================================================================================")
     for batch_testing in testing_loader:
         print(f"Shape of the Testing Batch Aids:{batch_testing["aids"].shape}, Shape of the Batch Ts:{batch_testing["timestamps"].shape}, Shape of the batch Type:{batch_testing["events_type"].shape}")
+
+
+
     
-    
-    
-    
+class MLP(nn.Module):
+    def __init__(self, input, mlp_dropout, output):
+        super().__init__()
+        self.layers = nn.Sequential(
+        nn.Linear(input, 128),
+        nn.ReLU(),
+        nn.Dropout(mlp_dropout),
+        nn.Linear(128, output)
+        )
+    def forward(self, x):
+        return self.layers(x)
     
     
 class TRACE(nn.Module):
-    def __init__(self, session):
+    def __init__(self, num_embeddings_aid, num_embeddings_event_type):
         super(TRACE, self).__init__()
-        aid_vocab = set(session["aid"].item())
-        num_embeddings_aid = len(aid_vocab)
-        self.embedding_aid = nn.Embedding(num_embeddings_aid, embedding_dim=EMBEDDING_DIM)    
+        self.embedding_aid = nn.Embedding(num_embeddings=num_embeddings_aid, embedding_dim=EMBEDDING_DIM)
+        self.embedding_eventtype = nn.Embedding(num_embeddings=num_embeddings_event_type, embedding_dim=EMBEDDING_DIM) 
+
+        self.positional_embedding = nn.Embedding(num_embeddings=L_SEQUENCE_LENGHT, embedding_dim=EMBEDDING_DIM)
+        
+        #self.TransformerEncoding = nn.TransformerEncoder()
+        
+        #self.Transfomer = nn.Transformer(, nhead=8)
+        
+        #self.mlp = MLP() 
     
 class OttoDataSetSession(Dataset):
     def __init__(self, session):
