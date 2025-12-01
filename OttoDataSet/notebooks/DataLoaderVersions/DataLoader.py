@@ -1,4 +1,5 @@
 import torch
+from torch import nn
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader, Dataset
 import json
@@ -7,7 +8,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 THRESHOLD_TIMESTAMPS = 16
 L_SEQUENCE_LENGHT = 48
-
+EMBEDDING_DIM = 32
 
 
 def main():
@@ -88,7 +89,12 @@ def main():
     
     
     
-    
+class TRACE(nn.Module):
+    def __init__(self, session):
+        super(TRACE, self).__init__()
+        aid_vocab = set(session["aid"].item())
+        num_embeddings_aid = len(aid_vocab)
+        self.embedding_aid = nn.Embedding(num_embeddings_aid, embedding_dim=EMBEDDING_DIM)    
     
 class OttoDataSetSession(Dataset):
     def __init__(self, session):
@@ -302,7 +308,7 @@ def custom_collate(batch):
     
     session_id = [d["session_id"] for d in batch]
     return {
-        "aids" : aids_padded,
+        "aid" : aids_padded,
         "timestamps" : timestamps_padded,
         "events_type" : events_type_padded,
         "session_id" : torch.stack(session_id)
