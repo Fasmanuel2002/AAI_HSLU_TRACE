@@ -11,4 +11,5 @@
 *.jsonl
 *.parquet
 *.pyc
+*.pt
 OttoDataSetMain/runs/
