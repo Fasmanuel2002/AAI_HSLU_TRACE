@@ -205,6 +205,6 @@ class TraceOttoDataSet(OttoDataSetSession):
                 logits_RA1.append(1)
             else: 
                 logits_RA1.append(0)
-        return logits_RA1#
+        return logits_RA1
             
            
