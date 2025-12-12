@@ -10,3 +10,5 @@
 *.csv
 *.jsonl
 *.parquet
+*.pyc
+OttoDataSetMain/runs/
