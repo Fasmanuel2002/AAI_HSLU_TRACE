@@ -27,7 +27,7 @@ def main():
         
     #See if the Lenght of the new inputs are the Lenght Sequence
     sample = dataset_processed[0]
-    assert len(sample["inputs"]["timestamps"]) == 64
+    assert len(sample[0]["timestamps"]) == 64
 
     
     # Data splitting train/test
@@ -70,11 +70,11 @@ def main():
     )    
     
     max_aid = max(
-        session["inputs"]["aid"].max().item()
+        session[0]["aid"].max().item()
         for session in dataset_processed
     )
     max_type = max(
-        session["inputs"]["type"].max().item()
+        session[0]["type"].max().item()
         for session in dataset_processed
     )
 
@@ -84,21 +84,9 @@ def main():
         num_embeddings_aid=num_embeddings_aid,
         num_embeddings_event_type=num_embeddings_event_type,
         embedding_dim=32,
-        num_classes=1 #4 # Jan: You are doing only one class here, so not 4 classes...
-    )
-    
-    for batch_training in train_loader:
-        sample = batch_training["inputs"]
-
-        print(
-            f"Shape Aids: {sample['aid'].shape}, "
-            f"Shape Timestamps: {sample['timestamps'].shape}, "
-            f"Shape Type: {sample['type'].shape}"
-        )
-        break  
-    
-
-
+        num_classes=4#4 # Jan: You are doing only one class here, so not 4 classes...
+    )  
+      
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     trace_model = trace_model.to(device)
@@ -115,119 +103,197 @@ def main():
     #Summary Writer for tensorBoard
     tensor_board_writer = SummaryWriter(log_dir=f"runs/exp_{time.time()}")
     trace_model.train()
+
     for epoch in range(num_epochs):
         # -------------------------------TRAINING ---------------------------
         trace_model.train()
         epoch_loss = 0.0
 
-        correct_train = 0
-        total_train = 0
+        correct_train_ATC = 0
+        correct_train_SAT = 0
+        correct_train_PD1 = 0
+        correct_train_RA1 = 0
 
-        for batch_trainer in train_loader:
-            evidence = {
-            k: v.to(device, non_blocking=True)
-            for k, v in batch_trainer["inputs"].items()
+        total_train_ATC = 0
+        total_train_SAT = 0
+        total_train_PD1 = 0
+        total_train_RA1 = 0
+
+        for inputs_train, targets_train in train_loader:
+
+            # 🔹 labels → GPU
+            label_train_ATC = targets_train["ATC"].unsqueeze(1).to(device)
+            label_train_SAT = targets_train["SAT"].unsqueeze(1).to(device)
+            label_train_PD1 = targets_train["PD1"].unsqueeze(1).to(device)
+            label_train_RA1 = targets_train["RA1"].unsqueeze(1).to(device)
+
+            # 🔹 inputs → GPU (SIN CAMBIAR ESTRUCTURA)
+            inputs_train = {
+                k: v.to(device)
+                for k, v in inputs_train.items()
             }
-            label_train = (
-                batch_trainer["targets"]["ATC"]
-                .unsqueeze_(1)
-                .to(device, non_blocking=True)
-            )
 
-            delta_elapsed = get_elapsed_feature(evidence["timestamps"]).to(device)
-            delta_between = get_delta_features(evidence["timestamps"]).to(device)
+            delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
+            delta_between = get_delta_features(inputs_train["timestamps"]).to(device)
 
-            pred = trace_model(
-                evidence["aid"],
-                evidence["type"],
+            logits = trace_model(
+                inputs_train["aid"],
+                inputs_train["type"],
                 delta_elapsed,
                 delta_between
             )
 
-            loss = criterion(pred, label_train.float())
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            pred_ATC = logits[:, 0:1]
+            pred_SAT = logits[:, 1:2]
+            pred_PD1 = logits[:, 2:3]
+            pred_RA1 = logits[:, 3:4]
+
+            loss_ATC = criterion(pred_ATC, label_train_ATC.float())
+            loss_SAT = criterion(pred_SAT, label_train_SAT.float())
+            loss_PD1 = criterion(pred_PD1, label_train_PD1.float())
+            loss_RA1 = criterion(pred_RA1, label_train_RA1.float())
+
+            optimizer.zero_grad()
+            loss_training = loss_ATC + loss_SAT + loss_PD1 + loss_RA1
+            loss_training.backward()
             optimizer.step()
 
-            epoch_loss += loss.item()
+            epoch_loss += loss_training.item()
 
-            with torch.no_grad():
-                probs = torch.sigmoid(pred)
-                preds = (probs >= 0.5).float()
+            # ============ ATC ============
+            probs_ATC = torch.sigmoid(pred_ATC)
+            preds_ATC = (probs_ATC >= 0.5).float()
+            correct_train_ATC += (preds_ATC == label_train_ATC).sum().item()
+            total_train_ATC += label_train_ATC.numel()
 
-            correct_train += (preds == label_train).sum().item()
-            total_train += label_train.numel()
+            # ============ SAT ============
+            probs_SAT = torch.sigmoid(pred_SAT)
+            preds_SAT = (probs_SAT >= 0.5).float()
+            correct_train_SAT += (preds_SAT == label_train_SAT).sum().item()
+            total_train_SAT += label_train_SAT.numel()
+
+            # ============ PD1 ============
+            probs_PD1 = torch.sigmoid(pred_PD1)
+            preds_PD1 = (probs_PD1 >= 0.5).float()
+            correct_train_PD1 += (preds_PD1 == label_train_PD1).sum().item()
+            total_train_PD1 += label_train_PD1.numel()
+
+            # ============ RA1 ============
+            probs_RA1 = torch.sigmoid(pred_RA1)
+            preds_RA1 = (probs_RA1 >= 0.5).float()
+            correct_train_RA1 += (preds_RA1 == label_train_RA1).sum().item()
+            total_train_RA1 += label_train_RA1.numel()
 
         train_loss = epoch_loss / len(train_loader)
-        train_acc = correct_train / max(total_train, 1)
-        
-        #TensorBoard Writer
-        tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
-        tensor_board_writer.add_scalar("Training/Accuracy", train_acc, epoch)
-        
-        # ------------------------------- VALIDATION ---------------------------
 
+        train_acc_ATC = correct_train_ATC / max(total_train_ATC, 1)
+        train_acc_SAT = correct_train_SAT / max(total_train_SAT, 1)
+        train_acc_PD1 = correct_train_PD1 / max(total_train_PD1, 1)
+        train_acc_RA1 = correct_train_RA1 / max(total_train_RA1, 1)
+
+        tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
+        tensor_board_writer.add_scalar("Train/Acc_ATC", train_acc_ATC, epoch)
+        tensor_board_writer.add_scalar("Train/Acc_SAT", train_acc_SAT, epoch)
+        tensor_board_writer.add_scalar("Train/Acc_PD1", train_acc_PD1, epoch)
+        tensor_board_writer.add_scalar("Train/Acc_RA1", train_acc_RA1, epoch)
+
+        # -------------------------------VALIDATION---------------------------
         trace_model.eval()
         val_loss = 0.0
-        correct_test = 0
-        total_test = 0
+
+        correct_test_ATC = 0
+        correct_test_SAT = 0
+        correct_test_PD1 = 0
+        correct_test_RA1 = 0
+
+        total_test_ATC = 0
+        total_test_SAT = 0
+        total_test_PD1 = 0
+        total_test_RA1 = 0
 
         with torch.no_grad():
-            for batch_test in test_loader:
-                evidence = {
-                    k: v.to(device, non_blocking=True)
-                    for k, v in batch_test["inputs"].items()
+            for inputs_test, targets_test in test_loader:
+
+                label_test_ATC = targets_test["ATC"].unsqueeze(1).to(device)
+                label_test_SAT = targets_test["SAT"].unsqueeze(1).to(device)
+                label_test_PD1 = targets_test["PD1"].unsqueeze(1).to(device)
+                label_test_RA1 = targets_test["RA1"].unsqueeze(1).to(device)
+
+                inputs_test = {
+                    k: v.to(device)
+                    for k, v in inputs_test.items()
                 }
-                label_test = (
-                    batch_test["targets"]["ATC"]
-                    .unsqueeze_(1)
-                    .to(device, non_blocking=True)
-                )
 
+                delta_elapsed = get_elapsed_feature(inputs_test["timestamps"]).to(device)
+                delta_between = get_delta_features(inputs_test["timestamps"]).to(device)
 
-                delta_elapsed = get_elapsed_feature(evidence["timestamps"]).to(device)
-                delta_between = get_delta_features(evidence["timestamps"]).to(device)
-
-                pred_test = trace_model(
-                    evidence["aid"],
-                    evidence["type"],
+                logits_test = trace_model(
+                    inputs_test["aid"],
+                    inputs_test["type"],
                     delta_elapsed,
                     delta_between
                 )
 
-                loss_v = criterion(pred_test, label_test.float())
-                val_loss += loss_v.item()
+                pred_ATC_test = logits_test[:, 0:1]
+                pred_SAT_test = logits_test[:, 1:2]
+                pred_PD1_test = logits_test[:, 2:3]
+                pred_RA1_test = logits_test[:, 3:4]
 
-                probs_test = torch.sigmoid(pred_test)
-                preds_test = (probs_test >= 0.5).float()
+                loss_validation = (
+                    criterion(pred_ATC_test, label_test_ATC.float())
+                    + criterion(pred_SAT_test, label_test_SAT.float())
+                    + criterion(pred_PD1_test, label_test_PD1.float())
+                    + criterion(pred_RA1_test, label_test_RA1.float())
+                )
 
-                correct_test += (preds_test == label_test).sum().item()
-                total_test += label_test.numel()
+                val_loss += loss_validation.item()
+
+                # EXACTAMENTE IGUAL QUE TRAIN
+                probs_ATC_test = torch.sigmoid(pred_ATC_test)
+                preds_ATC_test = (probs_ATC_test >= 0.5).float()
+                correct_test_ATC += (preds_ATC_test == label_test_ATC).sum().item()
+                total_test_ATC += label_test_ATC.numel()
+
+                probs_SAT_test = torch.sigmoid(pred_SAT_test)
+                preds_SAT_test = (probs_SAT_test >= 0.5).float()
+                correct_test_SAT += (preds_SAT_test == label_test_SAT).sum().item()
+                total_test_SAT += label_test_SAT.numel()
+
+                probs_PD1_test = torch.sigmoid(pred_PD1_test)
+                preds_PD1_test = (probs_PD1_test >= 0.5).float()
+                correct_test_PD1 += (preds_PD1_test == label_test_PD1).sum().item()
+                total_test_PD1 += label_test_PD1.numel()
+
+                probs_RA1_test = torch.sigmoid(pred_RA1_test)
+                preds_RA1_test = (probs_RA1_test >= 0.5).float()
+                correct_test_RA1 += (preds_RA1_test == label_test_RA1).sum().item()
+                total_test_RA1 += label_test_RA1.numel()
 
         val_loss /= len(test_loader)
-        val_acc = correct_test / max(total_test, 1)
-        
-        #TensorBoard Writer
+
+        val_acc_ATC = correct_test_ATC / max(total_test_ATC, 1)
+        val_acc_SAT = correct_test_SAT / max(total_test_SAT, 1)
+        val_acc_PD1 = correct_test_PD1 / max(total_test_PD1, 1)
+        val_acc_RA1 = correct_test_RA1 / max(total_test_RA1, 1)
+
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
-        tensor_board_writer.add_scalar("Val/Accuracy", val_acc, epoch)
-        print(
-            f"Epoch [{epoch+1}/{num_epochs}] "
-            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
-        )
+        tensor_board_writer.add_scalar("Val/Acc_ATC", val_acc_ATC, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_SAT", val_acc_SAT, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_RA1", val_acc_RA1, epoch)
+
         early_stopping(val_loss, trace_model)
-    
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
-       
+
+    tensor_board_writer.close()
    
         
-    tensor_board_writer.close()
-    #Cargar el mejor modelo
+    #Load the Best model
     early_stopping.load_best_weights(trace_model)
 
-    # Guardado completo (para reanudar)
+    ## Save all the model(only to resume training)
     torch.save({
         "epoch": epoch,
         "model_state_dict": trace_model.state_dict(),

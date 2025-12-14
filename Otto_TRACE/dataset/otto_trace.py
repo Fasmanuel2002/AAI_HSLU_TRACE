@@ -39,7 +39,7 @@ class TraceOttoDataSet(OttoDataSetSession):
         self.PD1 = self.__PD1_task_logit___()
         self.RA1 = self.__RA1_task_logit___()
     
-    def __getitem__(self, index) -> Tuple:
+    def __getitem__(self, index) -> Tuple[dict, dict]:
         inputs_sessions = {
             "session_id": torch.tensor(self.inputs[index]["session_id"], dtype=torch.int64),
             "aid": torch.tensor(self.inputs[index]["aid"], dtype=torch.int64),
