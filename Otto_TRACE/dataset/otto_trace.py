@@ -1,13 +1,15 @@
 import random
 
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 
 import torch
 from torch.utils.data import Dataset
+from torch import Tensor
 
 from dataset.otto_session import OttoDataSetSession
+
 
 # Jan: Lots of things are suboptimal here
 # Hard to read the code
@@ -37,7 +39,7 @@ class TraceOttoDataSet(OttoDataSetSession):
         self.PD1 = self.__PD1_task_logit___()
         self.RA1 = self.__RA1_task_logit___()
     
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> Tuple:
         inputs_sessions = {
             "session_id": torch.tensor(self.inputs[index]["session_id"], dtype=torch.int64),
             "aid": torch.tensor(self.inputs[index]["aid"], dtype=torch.int64),
@@ -53,10 +55,9 @@ class TraceOttoDataSet(OttoDataSetSession):
             "RA1": self.RA1[index] ,
             }
 
-        return {
-            "inputs": inputs_sessions,
-            "targets": target_sessions
-        }
+        
+        return (inputs_sessions, target_sessions)
+        
      
         
     def _most_frequent(a_list):
