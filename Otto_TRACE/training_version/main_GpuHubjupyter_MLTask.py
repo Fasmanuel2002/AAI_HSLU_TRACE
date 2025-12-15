@@ -8,7 +8,7 @@ import time
 import numpy as np
 from model.trace import TRACE
 from dataset.otto_trace import TraceOttoDataSet
-from utils.feature_engineering import get_delta_features, get_elapsed_feature
+from utils.feature_engineering import get_between_features, get_elapsed_feature
 
 from utils.EarlyStopping import EarlyStopping
 
@@ -134,7 +134,7 @@ def main():
             }
 
             delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
-            delta_between = get_delta_features(inputs_train["timestamps"]).to(device)
+            delta_between = get_between_features(inputs_train["timestamps"]).to(device)
 
             logits_val = trace_model(
                 inputs_train["aid"],
@@ -228,7 +228,7 @@ def main():
                 }
 
                 delta_elapsed = get_elapsed_feature(inputs_test["timestamps"]).to(device)
-                delta_between = get_delta_features(inputs_test["timestamps"]).to(device)
+                delta_between = get_between_features(inputs_test["timestamps"]).to(device)
 
                 logits_test = trace_model(
                     inputs_test["aid"],

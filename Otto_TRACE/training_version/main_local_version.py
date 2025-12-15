@@ -8,7 +8,7 @@ import time
 import numpy as np
 from model.trace import TRACE
 from dataset.otto_trace import TraceOttoDataSet
-from utils.feature_engineering import get_delta_features, get_elapsed_feature
+from utils.feature_engineering import get_between_features, get_elapsed_feature
 
 TF_ENABLE_ONEDNN_OPTS=0
 
@@ -135,7 +135,7 @@ def main():
             label_train = batch_trainer["targets"]["ATC"]
 
             delta_elapsed = get_elapsed_feature(evidence["timestamps"])
-            delta_between = get_delta_features(evidence["timestamps"])
+            delta_between = get_between_features(evidence["timestamps"])
 
             pred = trace_model(
                 evidence["aid"],
@@ -177,7 +177,7 @@ def main():
                 label_test = batch_test["targets"]["ATC"].unsqueeze_(1)
 
                 delta_elapsed = get_elapsed_feature(evidence["timestamps"])
-                delta_between = get_delta_features(evidence["timestamps"])
+                delta_between = get_between_features(evidence["timestamps"])
 
                 pred_test = trace_model(
                     evidence["aid"],

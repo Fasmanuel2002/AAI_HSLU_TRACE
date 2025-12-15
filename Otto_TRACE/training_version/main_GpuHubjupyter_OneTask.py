@@ -8,7 +8,7 @@ import time
 import numpy as np
 from model.trace import TRACE
 from dataset.otto_trace import TraceOttoDataSet
-from utils.feature_engineering import get_delta_features, get_elapsed_feature
+from utils.feature_engineering import get_between_features, get_elapsed_feature
 
 from utils.EarlyStopping import EarlyStopping
 
@@ -82,7 +82,7 @@ def main():
         num_embeddings_aid=num_embeddings_aid,
         num_embeddings_event_type=num_embeddings_event_type,
         embedding_dim=32,
-        num_classes=1#4 # Jan: You are doing only one class here, so not 4 classes...
+        num_classes=1
     )  
       
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -90,16 +90,12 @@ def main():
     trace_model = trace_model.to(device)
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
-    early_stopping = EarlyStopping(
-    patience=6,
-    min_delta=1e-4,
-    mode="min",
-    path="best_TRACE_model.pt"
-    )
+    early_stopping = EarlyStopping(patience=6, min_delta=1e-4, mode="min", path="best_TRACE_model.pt")
+    
     num_epochs = 10
 
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/exp_{time.time()}")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/Debugging_RA1/exp_{time.time()}")
     trace_model.train()
 
     for epoch in range(num_epochs):
@@ -121,7 +117,7 @@ def main():
             }
 
             delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
-            delta_between = get_delta_features(inputs_train["timestamps"]).to(device)
+            delta_between = get_between_features(inputs_train["timestamps"]).to(device)
 
             logits_val = trace_model(
                 inputs_train["aid"],
@@ -131,7 +127,7 @@ def main():
             )
 
             
-            pred_RA1 = logits_val[:, 3:4] #RA1
+            pred_RA1 = logits_val
             
             loss_RA1 = criterion(pred_RA1, label_train_RA1.float())
 
@@ -170,9 +166,6 @@ def main():
 
         with torch.no_grad():
             for inputs_val, targets_val in val_loader:
-
-                
-                
                 
                 label_val_RA1 = targets_val["RA1"].unsqueeze(1).to(device)
 
@@ -182,7 +175,7 @@ def main():
                 }
 
                 delta_elapsed = get_elapsed_feature(inputs_val["timestamps"]).to(device)
-                delta_between = get_delta_features(inputs_val["timestamps"]).to(device)
+                delta_between = get_between_features(inputs_val["timestamps"]).to(device)
 
                 logits_val = trace_model(
                     inputs_val["aid"],
@@ -191,10 +184,9 @@ def main():
                     delta_between
                 )
 
+            
                 
-                
-                
-                pred_RA1_val = logits_val[:, 3:4]
+                pred_RA1_val = logits_val
                 
                 loss_RA1_val = criterion(pred_RA1_val, label_val_RA1.float())
 
@@ -213,6 +205,14 @@ def main():
 
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
         tensor_board_writer.add_scalar("Val/Acc_RA1", val_acc_RA1, epoch)
+        
+            
+        print(
+            f"Epoch [{epoch+1}/{num_epochs}] "
+            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_RA1:.4f} | "
+            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_RA1:.4f}"
+        )
+        
 
         early_stopping(val_loss, trace_model)
         if early_stopping.early_stop:
