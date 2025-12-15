@@ -17,7 +17,7 @@ def get_elapsed_feature(timestamps: torch.Tensor) -> torch.Tensor:
 
     return normalize_features(log_delta_elapsed)
     
-def get_delta_features(timestamps: torch.Tensor) -> torch.Tensor:
+def get_between_features(timestamps: torch.Tensor) -> torch.Tensor:
     delta_between = timestamps[:, 1:] - timestamps[:, :-1]
 
     valid_mask = (timestamps[:, 1:] > 0) & (timestamps[:, :-1] > 0)
