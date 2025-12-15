@@ -3,7 +3,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 import torch.optim as optim
 from torch.utils.data import random_split
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter # type: ignore
 import time
 import numpy as np
 from model.trace import TRACE
