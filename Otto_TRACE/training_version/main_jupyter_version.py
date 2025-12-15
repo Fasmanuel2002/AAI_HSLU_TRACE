@@ -121,13 +121,13 @@ def main():
 
         for inputs_train, targets_train in train_loader:
 
-            # 🔹 labels → GPU
+           
             label_train_ATC = targets_train["ATC"].unsqueeze(1).to(device)
             label_train_SAT = targets_train["SAT"].unsqueeze(1).to(device)
             label_train_PD1 = targets_train["PD1"].unsqueeze(1).to(device)
             label_train_RA1 = targets_train["RA1"].unsqueeze(1).to(device)
 
-            # 🔹 inputs → GPU (SIN CAMBIAR ESTRUCTURA)
+   
             inputs_train = {
                 k: v.to(device)
                 for k, v in inputs_train.items()
@@ -136,17 +136,17 @@ def main():
             delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
             delta_between = get_delta_features(inputs_train["timestamps"]).to(device)
 
-            logits = trace_model(
+            logits_val = trace_model(
                 inputs_train["aid"],
                 inputs_train["type"],
                 delta_elapsed,
                 delta_between
             )
 
-            pred_ATC = logits[:, 0:1]
-            pred_SAT = logits[:, 1:2]
-            pred_PD1 = logits[:, 2:3]
-            pred_RA1 = logits[:, 3:4]
+            pred_ATC = logits_val[:, 0:1] #ATC
+            pred_SAT = logits_val[:, 1:2] #SAT
+            pred_PD1 = logits_val[:, 2:3] #PD1
+            pred_RA1 = logits_val[:, 3:4] #RA1
 
             loss_ATC = criterion(pred_ATC, label_train_ATC.float())
             loss_SAT = criterion(pred_SAT, label_train_SAT.float())
@@ -154,8 +154,11 @@ def main():
             loss_RA1 = criterion(pred_RA1, label_train_RA1.float())
 
             optimizer.zero_grad()
+            
             loss_training = loss_ATC + loss_SAT + loss_PD1 + loss_RA1
+            
             loss_training.backward()
+            
             optimizer.step()
 
             epoch_loss += loss_training.item()
@@ -238,17 +241,19 @@ def main():
                 pred_SAT_test = logits_test[:, 1:2]
                 pred_PD1_test = logits_test[:, 2:3]
                 pred_RA1_test = logits_test[:, 3:4]
+                
+                loss_ATC_val = criterion(pred_ATC_test, label_test_ATC.float())
+                loss_SAT_val = criterion(pred_SAT_test, label_test_SAT.float())
+                loss_PD1_val = criterion(pred_PD1_test, label_test_PD1.float())
+                loss_RA1_val = criterion(pred_RA1_test, label_test_RA1.float())
 
-                loss_validation = (
-                    criterion(pred_ATC_test, label_test_ATC.float())
-                    + criterion(pred_SAT_test, label_test_SAT.float())
-                    + criterion(pred_PD1_test, label_test_PD1.float())
-                    + criterion(pred_RA1_test, label_test_RA1.float())
-                )
+                loss_validation = loss_ATC_val + loss_SAT_val + loss_PD1_val + loss_RA1_val
+                
+                
 
                 val_loss += loss_validation.item()
 
-                # EXACTAMENTE IGUAL QUE TRAIN
+                
                 probs_ATC_test = torch.sigmoid(pred_ATC_test)
                 preds_ATC_test = (probs_ATC_test >= 0.5).float()
                 correct_test_ATC += (preds_ATC_test == label_test_ATC).sum().item()
