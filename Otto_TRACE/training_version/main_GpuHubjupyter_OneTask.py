@@ -1,19 +1,22 @@
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 import torch.optim as optim
-from torch.utils.data import random_split
+from utils.SplitData import split_data_Train_Val_Test
 from torch.utils.tensorboard import SummaryWriter # type: ignore
 import time
 import numpy as np
 from model.trace import TRACE
 from dataset.otto_trace import TraceOttoDataSet
-from utils.feature_engineering import get_between_features, get_elapsed_feature
 
 from utils.EarlyStopping import EarlyStopping
+from utils.feature_engineering import get_between_features, get_elapsed_feature
+import torch.nn.functional as F
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def main():
@@ -24,49 +27,12 @@ def main():
         min_timestamps_per_sample=16,
         max_samples=1000000
     )
+    
+    
 
-        
+    train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed)
     #See if the Lenght of the new inputs are the Lenght Sequence
-    
-    # Data splitting train/val
-    train_size = int(0.8 * len(dataset_processed))
-    val_size = len(dataset_processed) - train_size
-    
-    train_data, val_data = random_split(
-        dataset_processed,
-        [train_size, val_size]
-    )
 
-
-
-    #DEV_SET
-    """
-    validation_loader = DataLoader(
-        dataset=val_data,
-        batch_size=32,
-        collate_fn=custom_collate,
-        shuffle=False
-    )
-    """
-
-    #TRAIN SET
-    #TRAIN SET
-    train_loader = DataLoader(
-        dataset=train_data,
-        batch_size=32,
-        shuffle=True,
-        pin_memory=True,
-        num_workers=0
-    )
-    #val SET
-    val_loader = DataLoader(
-        dataset=val_data,
-        batch_size=32,
-        shuffle=False,
-        pin_memory=True,
-        num_workers=0
-    )    
-    
     max_aid = max(
         session[0]["aid"].max().item()
         for session in dataset_processed
@@ -84,90 +50,92 @@ def main():
         embedding_dim=32,
         num_classes=1
     )  
-      
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    trace_model = trace_model.to(device)
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
-    early_stopping = EarlyStopping(patience=6, min_delta=1e-4, mode="min", path="best_TRACE_model.pt")
     
-    num_epochs = 10
+    trace_model = trace_model.to(device)
+    optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
+    early_stopping = EarlyStopping(
+    patience=6,
+    min_delta=1e-4,
+        mode="min",
+        path="best_TRACE_SAT_model.pt"
+        )
+    num_epochs = 15
 
-    #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/Debugging_RA1/exp_{time.time()}")
-    trace_model.train()
+        #Summary Writer for tensorBoard
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/Debugging/SAT_MODEL_2000000/")
+
+
+    #Figthing Data Imbalanced
+    pos_weight = 4.0
+    neg_weight = 1.0
 
     for epoch in range(num_epochs):
-        # -------------------------------TRAINING ---------------------------
+            # -------------------------------TRAINING ---------------------------
         trace_model.train()
         epoch_loss = 0.0
-        correct_train_RA1 = 0
-
-        
-        total_train_RA1 = 0
+        correct_train_SAT = 0
+        total_train_SAT = 0
 
         for inputs_train, targets_train in train_loader:
 
-            label_train_RA1 = targets_train["RA1"].unsqueeze(1).to(device)
+            label_train_SAT = targets_train["SAT"].unsqueeze(1).to(device)
 
             inputs_train = {
                 k: v.to(device)
-                for k, v in inputs_train.items()
-            }
+                    for k, v in inputs_train.items()
+                }
 
             delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
             delta_between = get_between_features(inputs_train["timestamps"]).to(device)
 
-            logits_val = trace_model(
-                inputs_train["aid"],
-                inputs_train["type"],
-                delta_elapsed,
-                delta_between
-            )
+                
+            logits_train = trace_model(
+                    inputs_train["aid"],
+                    inputs_train["type"],
+                    delta_elapsed,
+                    delta_between
+                )
 
+                
             
-            pred_RA1 = logits_val
+            weights = torch.where(label_train_SAT.float() == 0, neg_weight, pos_weight)
+            loss_training = F.binary_cross_entropy_with_logits(logits_train, label_train_SAT.float(), weight=weights)   
             
-            loss_RA1 = criterion(pred_RA1, label_train_RA1.float())
 
             optimizer.zero_grad()
-            
-            loss_training = loss_RA1
-            
             loss_training.backward()
-            
+                
             optimizer.step()
 
             epoch_loss += loss_training.item()
 
 
-            # ============ RA1 ============
-            probs_RA1 = torch.sigmoid(pred_RA1)
-            preds_RA1 = (probs_RA1 >= 0.5).float()
-            correct_train_RA1 += (preds_RA1 == label_train_RA1).sum().item()
-            total_train_RA1 += label_train_RA1.numel()
+                # ============ SAT ============
+            probs_SAT = torch.sigmoid(logits_train)
+            preds_SAT = (probs_SAT >= 0.5).float()
+            correct_train_SAT += (preds_SAT == label_train_SAT).sum().item()
+            total_train_SAT += label_train_SAT.numel()
 
         train_loss = epoch_loss / len(train_loader)
 
-        train_acc_RA1 = correct_train_RA1 / max(total_train_RA1, 1)
+        train_acc_SAT = correct_train_SAT / max(total_train_SAT, 1)
 
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
 
-        tensor_board_writer.add_scalar("Train/Acc_RA1", train_acc_RA1, epoch)
+        tensor_board_writer.add_scalar("Train/Acc_SAT", train_acc_SAT, epoch)
 
-        # -------------------------------VALIDATION---------------------------
+            # -------------------------------VALIDATION---------------------------
         trace_model.eval()
         val_loss = 0.0
 
-        correct_val_RA1 = 0
+        correct_val_SAT = 0
 
-        total_val_RA1 = 0
+        total_val_SAT = 0
 
         with torch.no_grad():
-            for inputs_val, targets_val in val_loader:
-                
-                label_val_RA1 = targets_val["RA1"].unsqueeze(1).to(device)
+            for inputs_val, targets_val in validation_loader:
+                    
+                label_val_SAT = targets_val["SAT"].unsqueeze(1).to(device)
 
                 inputs_val = {
                     k: v.to(device)
@@ -182,37 +150,36 @@ def main():
                     inputs_val["type"],
                     delta_elapsed,
                     delta_between
-                )
+                    )
+
+                
+
+                weights = torch.where(label_val_SAT.float() == 0, neg_weight, pos_weight)
+                loss_SAT_val = F.binary_cross_entropy_with_logits(logits_val, label_val_SAT.float(), weight=weights)   
+
+                val_loss += loss_SAT_val.item()
+
+                    #SAT Debuggin
+                probs_SAT_val = torch.sigmoid(logits_val)
+                preds_SAT_val = (probs_SAT_val >= 0.5).float()
+                correct_val_SAT += (preds_SAT_val == label_val_SAT).sum().item()
+                total_val_SAT += label_val_SAT.numel()
+
+        val_loss /= len(validation_loader)
 
             
-                
-                pred_RA1_val = logits_val
-                
-                loss_RA1_val = criterion(pred_RA1_val, label_val_RA1.float())
-
-                val_loss += loss_RA1_val.item()
-
-                #RA1 Debuggin
-                probs_RA1_val = torch.sigmoid(pred_RA1_val)
-                preds_RA1_val = (probs_RA1_val >= 0.5).float()
-                correct_val_RA1 += (preds_RA1_val == label_val_RA1).sum().item()
-                total_val_RA1 += label_val_RA1.numel()
-
-        val_loss /= len(val_loader)
-
-        
-        val_acc_RA1 = correct_val_RA1 / max(total_val_RA1, 1)
-
+        val_acc_SAT = correct_val_SAT / max(total_val_SAT, 1)
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
-        tensor_board_writer.add_scalar("Val/Acc_RA1", val_acc_RA1, epoch)
-        
+        tensor_board_writer.add_scalar("Val/Acc_SAT", val_acc_SAT, epoch)
             
+                
+                
         print(
-            f"Epoch [{epoch+1}/{num_epochs}] "
-            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_RA1:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_RA1:.4f}"
-        )
-        
+                f"Epoch [{epoch+1}/{num_epochs}] "
+                f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_SAT:.4f} | "
+                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_SAT:.4f}"
+            )
+            
 
         early_stopping(val_loss, trace_model)
         if early_stopping.early_stop:
@@ -221,6 +188,7 @@ def main():
 
     tensor_board_writer.close()
    
+
 """
     #Load the Best model
     early_stopping.load_best_weights(trace_model)
