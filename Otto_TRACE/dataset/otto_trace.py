@@ -144,11 +144,8 @@ class TraceOttoDataSet(OttoDataSetSession):
         """
         logits_ATC = []
         for target_part in self.targets:
-            if 3 in target_part["type"]:
-                logits_ATC.append(1)
-            else:
-                logits_ATC.append(0)
-
+            atc_counts = sum(target==3 for target in target_part["type"])
+            logits_ATC.append(1 if atc_counts>= 3 else 0)
         return logits_ATC
     
     def __SAT__task_logit__(self):
