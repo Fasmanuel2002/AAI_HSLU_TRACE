@@ -1,19 +1,29 @@
 import seaborn as sns
 import matplotlib.pyplot as plt
+from typing import List
 
-def plot_confusion_matrix(cm, name_task : str ,name_classes : int = 2 ):
+def plot_confusion_matrix(
+    cm,
+    name_task: str,
+    name_classes: List[str]
+):
     """
-    Classes are 0 or 1 because its the tasks prediction.
+    Binary confusion matrix for task prediction (0 / 1).
     """
-    fig, ax = plt.subplots(fig=(2,2))
-    sns.heatmap(cm,
-                annot=True,
-                fmt="d",
-                xticklabels=name_classes,
-                yticklabels=name_classes,
-                ax=ax
-                )
-    ax.secondary_xaxis("Predicted Classes")
-    ax.secondary_xaxis("True Classes")
-    ax.set_title(f"Confusion Matrix Single Task for {name_task}")
+    fig, ax = plt.subplots(figsize=(3, 3))
+
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=name_classes,
+        yticklabels=name_classes,
+        ax=ax
+    )
+
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("True label")
+    ax.set_title(f"Confusion Matrix – {name_task}")
+
     return fig
