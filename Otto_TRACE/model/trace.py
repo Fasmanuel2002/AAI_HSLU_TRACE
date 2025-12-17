@@ -66,7 +66,7 @@ class TRACE(nn.Module):
                                              num_layers=1)
         
                 
-        self.GBAP = nn.AdaptiveMaxPool1d(output_size=1)
+        self.GBMP = nn.AdaptiveMaxPool1d(output_size=1)
         
         # Jan: Why this? You have parameter num_classes, use it!
         #self.__ATC__ = MLP(input_channels=self.D_model, output_channels=1)
@@ -108,8 +108,8 @@ class TRACE(nn.Module):
         
         encoder = self.encoder(positional_embed)
         
-        global_avarage_pooling = self.GBAP(encoder.transpose(1,2)).squeeze(-1)
+        global_Max_pooling = self.GMAP(encoder.transpose(1,2)).squeeze(-1)
               
-        logits = self.MLP_layer(global_avarage_pooling)
+        logits = self.MLP_layer(global_Max_pooling)
         
         return logits  
