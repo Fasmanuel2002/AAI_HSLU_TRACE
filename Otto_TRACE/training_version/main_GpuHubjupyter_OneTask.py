@@ -2,16 +2,13 @@ import torch
 import torch.optim as optim
 from utils.SplitData import split_data_Train_Val_Test
 from torch.utils.tensorboard import SummaryWriter # type: ignore
-import numpy as np
+
 from model.trace import TRACE
 from dataset.otto_trace import TraceOttoDataSet
 
 from utils.EarlyStopping import EarlyStopping
 from utils.feature_engineering import get_between_features, get_elapsed_feature
-import torch.nn.functional as F
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
+from sklearn.metrics import f1_score
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -28,8 +25,7 @@ def main():
     
 
     train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed)
-    #See if the Lenght of the new inputs are the Lenght Sequence
-
+    
     max_aid = max(
         session[0]["aid"].max().item()
         for session in dataset_processed
@@ -52,39 +48,46 @@ def main():
     optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
     early_stopping = EarlyStopping(
     patience=6,
-    min_delta=1e-4,
-        mode="min",
+    min_delta=1e-3,
+        mode="max",
         path="best_Check_TRACE_PD1_model.pt"
         )
     num_epochs = 40
 
-        #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/Final/PD1_MODEL_SingleTask")
+    #Summary Writer for tensorBoard
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/Final/PD1_MODEL_SingleTask_version2")
     print("Started the Training")
     #Figthing Data Imbalanced
     pos_weight = torch.tensor([4.0], device=device)
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    
 
     for epoch in range(num_epochs):
-            # -------------------------------TRAINING ---------------------------
+        #F1 Score training
+        all_train_y_true = []
+        all_train_y_pred = []
+        
+        
+        #F1 Score validation
+        all_val_y_true = []
+        all_val_y_pred = []
+        
+        
+        # -------------------------------TRAINING ---------------------------
         trace_model.train()
         epoch_loss = 0.0
         correct_train_PD1 = 0
         total_train_PD1 = 0
-
+        
         for inputs_train, targets_train in train_loader:
-
             label_train_PD1 = targets_train["PD1"].unsqueeze(1).to(device)
-
             inputs_train = {
                 k: v.to(device)
                     for k, v in inputs_train.items()
                 }
-
             delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
             delta_between = get_between_features(inputs_train["timestamps"]).to(device)
-
-                
+            
             logits_train = trace_model(
                     inputs_train["aid"],
                     inputs_train["type"],
@@ -92,28 +95,35 @@ def main():
                     delta_between
                 )
 
-                
-            
             loss_training = criterion(logits_train,label_train_PD1.float())
-                
-
+            
             optimizer.zero_grad()
+            
             loss_training.backward()
                 
             optimizer.step()
 
             epoch_loss += loss_training.item()
-
-
                 # ============ PD1 ============
             probs_PD1 = torch.sigmoid(logits_train)
             preds_PD1 = (probs_PD1 >= 0.5).float()
             correct_train_PD1 += (preds_PD1 == label_train_PD1).sum().item()
             total_train_PD1 += label_train_PD1.numel()
+            
+            #F1 Score For training 
+            all_train_y_true.append(label_train_PD1.detach().cpu())
+            all_train_y_pred.append(preds_PD1.detach().cpu())
+
 
         train_loss = epoch_loss / len(train_loader)
-
         train_acc_PD1 = correct_train_PD1 / max(total_train_PD1, 1)
+        
+        #F1 Score for training
+        all_train_y_true = torch.cat(all_train_y_true).numpy()
+        all_train_y_pred = torch.cat(all_train_y_pred).numpy()
+        train_f1_PD1 = f1_score(all_train_y_true, all_train_y_pred, zero_division=0)
+        
+        tensor_board_writer.add_scalar("Train/F1_PD1", train_f1_PD1, epoch)
 
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
 
@@ -122,10 +132,9 @@ def main():
             # -------------------------------VALIDATION---------------------------
         trace_model.eval()
         val_loss = 0.0
-
         correct_val_PD1 = 0
-
         total_val_PD1 = 0
+        
 
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
@@ -160,24 +169,36 @@ def main():
                 preds_PD1_val = (probs_PD1_val >= 0.5).float()
                 correct_val_PD1 += (preds_PD1_val == label_val_PD1).sum().item()
                 total_val_PD1 += label_val_PD1.numel()
+                
+                #F1 Score for validation
+                all_val_y_true.append(label_val_PD1.detach().cpu())
+                all_val_y_pred.append(preds_PD1_val.detach().cpu())
 
+        
+        #F1 Score for Validation
+        all_val_y_true = torch.cat(all_val_y_true).numpy()
+        all_val_y_pred = torch.cat(all_val_y_pred).numpy()
+        val_f1_PD1 = f1_score(all_val_y_true, all_val_y_pred, zero_division=0)
+        
         val_loss /= len(validation_loader)
 
             
         val_acc_PD1 = correct_val_PD1 / max(total_val_PD1, 1)
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
         tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
-            
+        tensor_board_writer.add_scalar("Val/F1_PD1", val_f1_PD1, epoch)
+
                 
                 
         print(
-                f"Epoch [{epoch+1}/{num_epochs}] "
-                f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | "
-                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_PD1:.4f}"
-            )
+            f"Epoch [{epoch+1}/{num_epochs}] "
+            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | Train F1: {train_f1_PD1:.4f} | "
+            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_PD1:.4f} | Val F1: {val_f1_PD1:.4f}"
+        )
+
             
 
-        early_stopping(val_loss, trace_model)
+        early_stopping(val_f1_PD1, trace_model)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
@@ -194,9 +215,9 @@ def main():
         "epoch": epoch,
         "model_state_dict": trace_model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
-        "train_loss": train_loss,
-        "val_loss": val_loss,
+        "best_val_f1": val_f1_PD1,
     }, "Final_PD1_ALLmodel.pt")
+
 
 
         
