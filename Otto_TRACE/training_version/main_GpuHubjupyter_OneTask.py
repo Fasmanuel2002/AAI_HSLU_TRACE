@@ -3,7 +3,6 @@ from torch import nn
 import torch.optim as optim
 from utils.SplitData import split_data_Train_Val_Test
 from torch.utils.tensorboard import SummaryWriter # type: ignore
-import time
 import numpy as np
 from model.trace import TRACE
 from dataset.otto_trace import TraceOttoDataSet
@@ -24,8 +23,7 @@ def main():
     dataset_processed = TraceOttoDataSet(
         file_name='train.jsonl',
         input_seq_len=64,
-        min_timestamps_per_sample=16,
-        max_samples=1000000
+        min_timestamps_per_sample=16
     )
     
     
@@ -57,14 +55,13 @@ def main():
     patience=6,
     min_delta=1e-4,
         mode="min",
-        path="best_TRACE_SAT_model.pt"
+        path="best_Check_TRACE_PD1_model.pt"
         )
-    num_epochs = 15
+    num_epochs = 40
 
         #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/Debugging/SAT_MODEL_2000000/")
-
-
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/Final/PD1_MODEL_SingleTask")
+    print("Started the Training")
     #Figthing Data Imbalanced
     pos_weight = 4.0
     neg_weight = 1.0
@@ -73,12 +70,12 @@ def main():
             # -------------------------------TRAINING ---------------------------
         trace_model.train()
         epoch_loss = 0.0
-        correct_train_SAT = 0
-        total_train_SAT = 0
+        correct_train_PD1 = 0
+        total_train_PD1 = 0
 
         for inputs_train, targets_train in train_loader:
 
-            label_train_SAT = targets_train["SAT"].unsqueeze(1).to(device)
+            label_train_PD1 = targets_train["PD1"].unsqueeze(1).to(device)
 
             inputs_train = {
                 k: v.to(device)
@@ -98,8 +95,8 @@ def main():
 
                 
             
-            weights = torch.where(label_train_SAT.float() == 0, neg_weight, pos_weight)
-            loss_training = F.binary_cross_entropy_with_logits(logits_train, label_train_SAT.float(), weight=weights)   
+            weights = torch.where(label_train_PD1.float() == 0, neg_weight, pos_weight)
+            loss_training = F.binary_cross_entropy_with_logits(logits_train, label_train_PD1.float(), weight=weights)   
             
 
             optimizer.zero_grad()
@@ -110,32 +107,32 @@ def main():
             epoch_loss += loss_training.item()
 
 
-                # ============ SAT ============
-            probs_SAT = torch.sigmoid(logits_train)
-            preds_SAT = (probs_SAT >= 0.5).float()
-            correct_train_SAT += (preds_SAT == label_train_SAT).sum().item()
-            total_train_SAT += label_train_SAT.numel()
+                # ============ PD1 ============
+            probs_PD1 = torch.sigmoid(logits_train)
+            preds_PD1 = (probs_PD1 >= 0.5).float()
+            correct_train_PD1 += (preds_PD1 == label_train_PD1).sum().item()
+            total_train_PD1 += label_train_PD1.numel()
 
         train_loss = epoch_loss / len(train_loader)
 
-        train_acc_SAT = correct_train_SAT / max(total_train_SAT, 1)
+        train_acc_PD1 = correct_train_PD1 / max(total_train_PD1, 1)
 
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
 
-        tensor_board_writer.add_scalar("Train/Acc_SAT", train_acc_SAT, epoch)
+        tensor_board_writer.add_scalar("Train/Acc_PD1", train_acc_PD1, epoch)
 
             # -------------------------------VALIDATION---------------------------
         trace_model.eval()
         val_loss = 0.0
 
-        correct_val_SAT = 0
+        correct_val_PD1 = 0
 
-        total_val_SAT = 0
+        total_val_PD1 = 0
 
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
                     
-                label_val_SAT = targets_val["SAT"].unsqueeze(1).to(device)
+                label_val_PD1 = targets_val["PD1"].unsqueeze(1).to(device)
 
                 inputs_val = {
                     k: v.to(device)
@@ -154,30 +151,30 @@ def main():
 
                 
 
-                weights = torch.where(label_val_SAT.float() == 0, neg_weight, pos_weight)
-                loss_SAT_val = F.binary_cross_entropy_with_logits(logits_val, label_val_SAT.float(), weight=weights)   
+                weights = torch.where(label_val_PD1.float() == 0, neg_weight, pos_weight)
+                loss_PD1_val = F.binary_cross_entropy_with_logits(logits_val, label_val_PD1.float(), weight=weights)   
 
-                val_loss += loss_SAT_val.item()
+                val_loss += loss_PD1_val.item()
 
-                    #SAT Debuggin
-                probs_SAT_val = torch.sigmoid(logits_val)
-                preds_SAT_val = (probs_SAT_val >= 0.5).float()
-                correct_val_SAT += (preds_SAT_val == label_val_SAT).sum().item()
-                total_val_SAT += label_val_SAT.numel()
+                    #PD1 Debuggin
+                probs_PD1_val = torch.sigmoid(logits_val)
+                preds_PD1_val = (probs_PD1_val >= 0.5).float()
+                correct_val_PD1 += (preds_PD1_val == label_val_PD1).sum().item()
+                total_val_PD1 += label_val_PD1.numel()
 
         val_loss /= len(validation_loader)
 
             
-        val_acc_SAT = correct_val_SAT / max(total_val_SAT, 1)
+        val_acc_PD1 = correct_val_PD1 / max(total_val_PD1, 1)
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
-        tensor_board_writer.add_scalar("Val/Acc_SAT", val_acc_SAT, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
             
                 
                 
         print(
                 f"Epoch [{epoch+1}/{num_epochs}] "
-                f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_SAT:.4f} | "
-                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_SAT:.4f}"
+                f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | "
+                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_PD1:.4f}"
             )
             
 
@@ -189,7 +186,7 @@ def main():
     tensor_board_writer.close()
    
 
-"""
+
     #Load the Best model
     early_stopping.load_best_weights(trace_model)
 
@@ -200,8 +197,8 @@ def main():
         "optimizer_state_dict": optimizer.state_dict(),
         "train_loss": train_loss,
         "val_loss": val_loss,
-    }, "checkpoint_TRACE.pt")
-"""
+    }, "Final_PD1_ALLmodel.pt")
+
 
         
 if __name__ == "__main__":

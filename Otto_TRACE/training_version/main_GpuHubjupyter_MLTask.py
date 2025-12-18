@@ -84,7 +84,7 @@ def main():
         num_embeddings_aid=num_embeddings_aid,
         num_embeddings_event_type=num_embeddings_event_type,
         embedding_dim=32,
-        num_classes=4#4 # Jan: You are doing only one class here, so not 4 classes...
+        num_classes=4
     )  
       
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
