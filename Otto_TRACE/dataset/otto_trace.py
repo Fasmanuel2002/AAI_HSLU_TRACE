@@ -1,13 +1,7 @@
 import random
-
-from typing import Optional, Tuple
-
+from typing import Optional, Tuple, Dict, List
 import numpy as np
-
 import torch
-from torch.utils.data import Dataset
-from torch import Tensor
-
 from dataset.otto_session import OttoDataSetSession
 
 
@@ -25,12 +19,8 @@ class TraceOttoDataSet(OttoDataSetSession):
         super().__init__(file_name, min_timestamps_per_sample, max_samples)
         
         self.input_seq_len = input_seq_len
-
-        #Cut: input/target
-        # Jan: Not everything has to be a member variable!
-        # The idea of member variables is the class holding relevant information about the object it represents, and not just storing any variable used within the class internal computation
-        input_part, target_part = self.__cut_input_target__()
-                
+        
+        input_part, target_part = self.__cut_input_target__()        
         self.inputs = self.__pad_input_sequence__(input_part)
         self.targets = target_part
          
@@ -72,7 +62,7 @@ class TraceOttoDataSet(OttoDataSetSession):
                 count, itm = dict[item], item
         return (count, itm)
     
-    def __padding__(self, session):   
+    def __padding__(self, session) -> Dict:   
         padd_len = self.input_seq_len - len(session["timestamps"])
         zeros = np.zeros(padd_len)
         
@@ -87,7 +77,7 @@ class TraceOttoDataSet(OttoDataSetSession):
         }
            
         
-    def __cut_input_target__(self, min_value=0.80, max_value=0.90):
+    def __cut_input_target__(self, min_value=0.80, max_value=0.90) -> Tuple:
         input_batches = []
         target_batches = []
 
@@ -120,7 +110,7 @@ class TraceOttoDataSet(OttoDataSetSession):
 
 
             
-    def __pad_input_sequence__(self, input):
+    def __pad_input_sequence__(self, input) -> List:
         session_padded = []
         for session in input:
             if len(session["timestamps"]) >= self.input_seq_len:
@@ -138,7 +128,7 @@ class TraceOttoDataSet(OttoDataSetSession):
     """
     Logits of the the model
     """
-    def __ATC_task_logit__(self):
+    def __ATC_task_logit__(self) -> List:
         """
         Labels for ATC (User added to the cart in the FUTURE)
         """
@@ -148,7 +138,7 @@ class TraceOttoDataSet(OttoDataSetSession):
             logits_ATC.append(1 if atc_counts>= 3 else 0)
         return logits_ATC
     
-    def __SAT__task_logit__(self):
+    def __SAT__task_logit__(self) -> List:
         """
         Counts the highest number of timestamps per product, used in Logit SAT4 (Seeing the same Aid 4 times)
         """
@@ -158,19 +148,19 @@ class TraceOttoDataSet(OttoDataSetSession):
             count = 0    
             for aids in session["aid"]:
                 AidsS_repeated.append(aids)
-                count, product = TraceOttoDataSet._most_frequent(AidsS_repeated)
+                count, product = TraceOttoDataSet._most_frequent(AidsS_repeated) # type: ignore
             if count >= 4:
                 logits_SAT.append(1)
             else:
                 logits_SAT.append(0)
         return logits_SAT
     
-    def __PD1_task_logit___(self):
+    def __PD1_task_logit___(self) -> List:
         """
         Logits for PD1(Make any Purchase within a day)
         """
         logits_PD1 = []
-        ONE_DAY = (86400 * 1000)
+        ONE_DAY = (86400 * 1000) 
         for session in self.targets:
             last_ts = session["timestamps"][-1]
             ordered_ts = session["timestamps"][session["type"] == 3]
@@ -185,7 +175,7 @@ class TraceOttoDataSet(OttoDataSetSession):
             
         return logits_PD1
     
-    def __RA1_task_logit___(self):
+    def __RA1_task_logit___(self) -> List:
         """
         Logits for RA1(Return to the same Aid in 1 days)
         """
