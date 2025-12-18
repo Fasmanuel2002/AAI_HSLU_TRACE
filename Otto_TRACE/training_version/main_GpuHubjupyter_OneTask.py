@@ -1,5 +1,4 @@
 import torch
-from torch import nn
 import torch.optim as optim
 from utils.SplitData import split_data_Train_Val_Test
 from torch.utils.tensorboard import SummaryWriter # type: ignore
@@ -63,8 +62,8 @@ def main():
     tensor_board_writer = SummaryWriter(log_dir=f"runs/Final/PD1_MODEL_SingleTask")
     print("Started the Training")
     #Figthing Data Imbalanced
-    pos_weight = 4.0
-    neg_weight = 1.0
+    pos_weight = torch.tensor([4.0], device=device)
+    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     for epoch in range(num_epochs):
             # -------------------------------TRAINING ---------------------------
@@ -95,9 +94,8 @@ def main():
 
                 
             
-            weights = torch.where(label_train_PD1.float() == 0, neg_weight, pos_weight)
-            loss_training = F.binary_cross_entropy_with_logits(logits_train, label_train_PD1.float(), weight=weights)   
-            
+            loss_training = criterion(logits_train,label_train_PD1.float())
+                
 
             optimizer.zero_grad()
             loss_training.backward()
@@ -151,10 +149,11 @@ def main():
 
                 
 
-                weights = torch.where(label_val_PD1.float() == 0, neg_weight, pos_weight)
-                loss_PD1_val = F.binary_cross_entropy_with_logits(logits_val, label_val_PD1.float(), weight=weights)   
+                
 
-                val_loss += loss_PD1_val.item()
+                loss_validation = criterion(logits_val,label_val_PD1.float())
+                
+                val_loss += loss_validation.item()
 
                     #PD1 Debuggin
                 probs_PD1_val = torch.sigmoid(logits_val)
