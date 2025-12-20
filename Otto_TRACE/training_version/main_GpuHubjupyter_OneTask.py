@@ -24,7 +24,7 @@ def main():
     )
     
     #Split the Data into Training_loader, Validation_loader and test_loaders
-    train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed)
+    train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed, batch_size=16)
     
     #calling the max aid and type for combating the Out of Range Error -> Learning Embeddings
     max_aid = max(
@@ -48,7 +48,7 @@ def main():
     
     trace_model = trace_model.to(device)
     optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
-    early_stopping = EarlyStopping(patience=6,min_delta=1e-3,mode="max",path="best_Check_TRACE_PD1_model.pt")
+    early_stopping = EarlyStopping(patience=6,min_delta=1e-3,mode="max",path="best_CheckPoint_batch16_PD1_model.pt")
     num_epochs = 40
 
     #Summary Writer for tensorBoard
@@ -57,9 +57,10 @@ def main():
     print("Started the Training")
     
     #Figthing Data Imbalanced
-    pos_weight = torch.tensor([4.0], device=device)
+    pos_weight = torch.tensor([3.0], device=device)
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    
+    #Learning Rate Scheduler
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=1,min_lr=5e-4,verbose=True)
 
     for epoch in range(num_epochs):
         #F1 Score training
@@ -90,6 +91,7 @@ def main():
             delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
             delta_between = get_between_features(inputs_train["timestamps"]).to(device)
             
+            optimizer.zero_grad()
             #Predictions of the model
             logits_train = trace_model(
                     inputs_train["aid"],
@@ -100,9 +102,9 @@ def main():
             
             #Calculation loss for Training using BCEWithLogitsLoss
             loss_training = criterion(logits_train,label_train_PD1.float())
-            optimizer.zero_grad()
             loss_training.backward()
             optimizer.step()
+            
             epoch_loss += loss_training.item()
             
             # ============ PD1(Prediction, calculation of Accuracy) ============
@@ -189,7 +191,7 @@ def main():
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
         tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
         tensor_board_writer.add_scalar("Val/F1_PD1", val_f1_PD1, epoch)
-
+        lr_scheduler.step(val_f1_PD1)
                 
                 
         print(
@@ -210,13 +212,12 @@ def main():
     #Load the Best Checkpoint model
     early_stopping.load_best_weights(trace_model)
     
-    #Save all the model
+    #
     torch.save({
-        "epoch": epoch,
         "model_state_dict": trace_model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "best_val_f1": val_f1_PD1,
-    }, "Final_PD1_ALLmodel.pt")
+    }, "Final_PD1_16Batch_LrSchedulee_model.pt")
 
 
 
