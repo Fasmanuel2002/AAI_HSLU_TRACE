@@ -16,6 +16,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def main():
     
+    print("Beginning")
     #DataSet    
     dataset_processed = TraceOttoDataSet(
         file_name='train.jsonl',
@@ -48,11 +49,11 @@ def main():
     
     trace_model = trace_model.to(device)
     optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
-    early_stopping = EarlyStopping(patience=6,min_delta=1e-3,mode="max",path="best_CheckPoint_batch16_PD1_model.pt")
+    early_stopping = EarlyStopping(patience=6,min_delta=5e-4,mode="max",path="best_CheckPoint_batch16_PD1_model_lr3-e5_wd1e-6_earlystopping.pt")
     num_epochs = 40
 
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/Final/PD1_MODEL_SingleTask_version2")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping")
     
     print("Started the Training")
     
@@ -60,8 +61,8 @@ def main():
     pos_weight = torch.tensor([3.0], device=device)
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     #Learning Rate Scheduler
-    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=1,min_lr=5e-4,verbose=True)
-
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=1,min_lr=1e-6)
+    best_val_f1 = -1.0
     for epoch in range(num_epochs):
         #F1 Score training
         all_train_y_true = []
@@ -181,7 +182,8 @@ def main():
         all_val_y_true = torch.cat(all_val_y_true).numpy()
         all_val_y_pred = torch.cat(all_val_y_pred).numpy()
         val_f1_PD1 = f1_score(all_val_y_true, all_val_y_pred, zero_division=0)
-        
+        if val_f1_PD1 > best_val_f1:
+            best_val_f1 = val_f1_PD1
         
         #Validation Loss and Accuracy 
         val_loss /= len(validation_loader)
@@ -216,7 +218,7 @@ def main():
     torch.save({
         "model_state_dict": trace_model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
-        "best_val_f1": val_f1_PD1,
+        "best_val_f1": best_val_f1,
     }, "Final_PD1_16Batch_LrSchedulee_model.pt")
 
 
