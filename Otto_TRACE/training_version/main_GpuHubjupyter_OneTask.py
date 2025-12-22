@@ -61,7 +61,7 @@ def main():
     pos_weight = torch.tensor([3.0], device=device)
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     #Learning Rate Scheduler
-    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=1,min_lr=1e-6)
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=2,min_lr=1e-6)
     best_val_f1 = -1.0
     for epoch in range(num_epochs):
         #F1 Score training
@@ -131,6 +131,9 @@ def main():
         tensor_board_writer.add_scalar("Train/F1_PD1", train_f1_PD1, epoch)
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
         tensor_board_writer.add_scalar("Train/Acc_PD1", train_acc_PD1, epoch)
+        
+        current_lr = optimizer.param_groups[0]["lr"]
+        tensor_board_writer.add_scalar("LR", current_lr, epoch)
 
 
         # -------------------------------VALIDATION---------------------------
