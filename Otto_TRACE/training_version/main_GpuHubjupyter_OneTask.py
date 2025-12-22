@@ -132,8 +132,6 @@ def main():
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
         tensor_board_writer.add_scalar("Train/Acc_PD1", train_acc_PD1, epoch)
         
-        current_lr = optimizer.param_groups[0]["lr"]
-        tensor_board_writer.add_scalar("LR", current_lr, epoch)
 
 
         # -------------------------------VALIDATION---------------------------
@@ -197,21 +195,22 @@ def main():
         tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
         tensor_board_writer.add_scalar("Val/F1_PD1", val_f1_PD1, epoch)
         lr_scheduler.step(val_f1_PD1)
-                
-                
+                        
         print(
             f"Epoch [{epoch+1}/{num_epochs}] "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | Train F1: {train_f1_PD1:.4f} | "
             f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_PD1:.4f} | Val F1: {val_f1_PD1:.4f}"
         )
         
-        
         #Early Stopping
         early_stopping(val_f1_PD1, trace_model)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
-
+        
+        current_lr = optimizer.param_groups[0]["lr"]
+        tensor_board_writer.add_scalar("LR", current_lr, epoch)
+        print(f"This is the LR: {current_lr}")
     tensor_board_writer.close()
    
     #Load the Best Checkpoint model
