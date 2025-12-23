@@ -108,7 +108,7 @@ class TRACE(nn.Module):
         
         encoder = self.encoder(positional_embed)
         
-        global_Max_pooling = self.GMAP(encoder.transpose(1,2)).squeeze(-1)
+        global_Max_pooling = self.GBMP(encoder.transpose(1,2)).squeeze(-1)
               
         logits = self.MLP_layer(global_Max_pooling)
         
