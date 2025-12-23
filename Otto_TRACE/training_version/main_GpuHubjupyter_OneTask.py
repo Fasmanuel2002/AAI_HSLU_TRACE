@@ -58,8 +58,11 @@ def main():
     print("Started the Training")
     
     #Figthing Data Imbalanced
-    pos_weight = torch.tensor([3.0], device=device)
-    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    all_labels = [sample[1]["PD1"] for sample in dataset_processed]
+    num_pos = sum(1 for x in all_labels if x == 1)
+    num_neg = sum(1 for x in all_labels if x == 0)
+    calculated_weight = torch.tensor([num_neg / num_pos], device=device)
+    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=calculated_weight)
     #Learning Rate Scheduler
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=2,min_lr=1e-6)
     best_val_f1 = -1.0
