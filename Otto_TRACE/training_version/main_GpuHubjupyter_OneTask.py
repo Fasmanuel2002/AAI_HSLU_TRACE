@@ -49,14 +49,13 @@ def main():
     
     trace_model = trace_model.to(device)
     optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
-    early_stopping = EarlyStopping(patience=6,min_delta=5e-4,mode="max",path="best_CheckPoint_batch16_PD1_model_lr3-e5_wd1e-6_earlystopping.pt")
+    early_stopping = EarlyStopping(patience=6,min_delta=5e-4,mode="max",path="best_CheckPoint_batch16_PD1_model_lr3-e5_wd1e-6_earlystopping_versionFinal.pt")
     num_epochs = 40
 
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping_versionFinal")
     
     print("Started the Training")
-    
     #Figthing Data Imbalanced
     all_labels = [sample[1]["PD1"] for sample in dataset_processed]
     num_pos = sum(1 for x in all_labels if x == 1)
@@ -64,8 +63,8 @@ def main():
     calculated_weight = torch.tensor([num_neg / num_pos], device=device)
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=calculated_weight)
     #Learning Rate Scheduler
-    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=2,min_lr=1e-6)
-    best_val_f1 = -1.0
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=1,min_lr=1e-6,verbose=True)
+
     for epoch in range(num_epochs):
         #F1 Score training
         all_train_y_true = []
@@ -134,7 +133,6 @@ def main():
         tensor_board_writer.add_scalar("Train/F1_PD1", train_f1_PD1, epoch)
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
         tensor_board_writer.add_scalar("Train/Acc_PD1", train_acc_PD1, epoch)
-        
 
 
         # -------------------------------VALIDATION---------------------------
@@ -186,8 +184,7 @@ def main():
         all_val_y_true = torch.cat(all_val_y_true).numpy()
         all_val_y_pred = torch.cat(all_val_y_pred).numpy()
         val_f1_PD1 = f1_score(all_val_y_true, all_val_y_pred, zero_division=0)
-        if val_f1_PD1 > best_val_f1:
-            best_val_f1 = val_f1_PD1
+        
         
         #Validation Loss and Accuracy 
         val_loss /= len(validation_loader)
@@ -198,22 +195,21 @@ def main():
         tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
         tensor_board_writer.add_scalar("Val/F1_PD1", val_f1_PD1, epoch)
         lr_scheduler.step(val_f1_PD1)
-                        
+                
+                
         print(
             f"Epoch [{epoch+1}/{num_epochs}] "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | Train F1: {train_f1_PD1:.4f} | "
             f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_PD1:.4f} | Val F1: {val_f1_PD1:.4f}"
         )
         
+        
         #Early Stopping
         early_stopping(val_f1_PD1, trace_model)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
-        
-        current_lr = optimizer.param_groups[0]["lr"]
-        tensor_board_writer.add_scalar("LR", current_lr, epoch)
-        print(f"This is the LR: {current_lr}")
+
     tensor_board_writer.close()
    
     #Load the Best Checkpoint model
@@ -223,8 +219,8 @@ def main():
     torch.save({
         "model_state_dict": trace_model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
-        "best_val_f1": best_val_f1,
-    }, "Final_PD1_16Batch_LrSchedulee_model.pt")
+        "best_val_f1": val_f1_PD1,
+    }, "Final_PD1_16Batch_LrSchedulee_model_versionFINAL.pt")
 
 
 
