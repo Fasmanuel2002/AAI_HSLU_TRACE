@@ -12,6 +12,7 @@ from sklearn.metrics import f1_score
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import numpy as np
 
 
 def main():
@@ -60,8 +61,9 @@ def main():
     all_labels = [sample[1]["PD1"] for sample in dataset_processed]
     num_pos = sum(1 for x in all_labels if x == 1)
     num_neg = sum(1 for x in all_labels if x == 0)
-    calculated_weight = torch.tensor([num_neg / num_pos], device=device)
-    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=calculated_weight)
+    ratio = num_neg / num_pos
+    smoothed_weight = torch.tensor([np.sqrt(ratio)], device=device)
+    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) #adding for smothing the weights
     #Learning Rate Scheduler
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=1,min_lr=1e-6,verbose=True)
 
