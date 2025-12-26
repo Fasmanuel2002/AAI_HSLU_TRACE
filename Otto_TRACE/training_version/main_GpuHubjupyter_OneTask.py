@@ -10,23 +10,22 @@ from utils.EarlyStopping import EarlyStopping
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from sklearn.metrics import f1_score
 import os
+import numpy as np
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-import numpy as np
 
 
 def main():
-    
     print("Beginning")
     #DataSet    
     dataset_processed = TraceOttoDataSet(
         file_name='train.jsonl',
         input_seq_len=64,
-        min_timestamps_per_sample=16
+        min_timestamps_per_sample=16,
     )
     
     #Split the Data into Training_loader, Validation_loader and test_loaders
-    train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed, batch_size=16)
+    train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed, batch_size=32)
     
     #calling the max aid and type for combating the Out of Range Error -> Learning Embeddings
     max_aid = max(
@@ -50,42 +49,63 @@ def main():
     
     trace_model = trace_model.to(device)
     optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
-    early_stopping = EarlyStopping(patience=6,min_delta=5e-4,mode="max",path="best_CheckPoint_batch16_PD1_model_lr3-e5_wd1e-6_earlystopping_versionFinal.pt")
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,cooldown=1,
+                                                        threshold=1e-4,
+                                                        mode="max",
+                                                        factor=0.5,
+                                                        patience=2,
+                                                        min_lr=1e-6)
+    early_stopping = EarlyStopping(patience=7,
+                                   min_delta=1e-4,
+                                   mode="max",
+                                   path="best_CheckPoint_bPD1h16_PD1_model_lr3-e5_wd1e-6_earlystopping_version_Smoothed_FinalVersion.pt")
     num_epochs = 40
+    best_val_f1 = -1.0
 
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping_versionFinal")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping_version_Smoothed_FinalVersion")
     
     print("Started the Training")
     #Figthing Data Imbalanced
-    all_labels = [sample[1]["PD1"] for sample in dataset_processed]
-    num_pos = sum(1 for x in all_labels if x == 1)
-    num_neg = sum(1 for x in all_labels if x == 0)
-    ratio = num_neg / num_pos
-    smoothed_weight = torch.tensor([np.sqrt(ratio)], device=device)
-    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) #adding for smothing the weights
-    #Learning Rate Scheduler
-    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,mode="max",factor=0.5,patience=1,min_lr=1e-6,verbose=True)
+    
+    labels_list = []
+    for inputs, targets in train_loader:
+        labels_list.append(targets["PD1"].view(-1))   # (B,)
 
+    labels = torch.cat(labels_list, dim=0)           # (N,)
+    num_pos = (labels == 1).sum().item()
+    num_neg = (labels == 0).sum().item()
+
+    ratio = num_neg / max(num_pos, 1)
+    smoothed_weight = torch.tensor([np.sqrt(ratio)], device=device)
+    
+    criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) #adding for smothing the weights
+    criterion_validation = torch.nn.BCEWithLogitsLoss()
+    print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())
+    #Learning Rate Scheduler
+    #To Save the Best F1 for the Model
+    best_val_f1 = -1.0
+    best_global_thr = 0.5
+    
     for epoch in range(num_epochs):
+        
         #F1 Score training
         all_train_y_true = []
         all_train_y_pred = []
-        
+            
         #F1 Score validation
         all_val_y_true = []
-        all_val_y_pred = []
-        
-        
+            
+            
         # -------------------------------TRAINING ---------------------------
         #Initializing the training variables
         trace_model.train()
         epoch_loss = 0.0
         correct_train_PD1 = 0
         total_train_PD1 = 0
-        
-        for inputs_train, targets_train in train_loader:
             
+        for inputs_train, targets_train in train_loader:
+                
             label_train_PD1 = targets_train["PD1"].unsqueeze(1).to(device)
             #Changing the Inputs -> to have GPU for JupyterGPUHub
             inputs_train = {
@@ -95,8 +115,8 @@ def main():
             #Calculation of the timestamps(Feature Engineer Trace Paper Part 2.2)
             delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
             delta_between = get_between_features(inputs_train["timestamps"]).to(device)
-            
-            optimizer.zero_grad()
+                
+            optimizer.zero_grad(set_to_none=True)
             #Predictions of the model
             logits_train = trace_model(
                     inputs_train["aid"],
@@ -104,125 +124,147 @@ def main():
                     delta_elapsed,
                     delta_between
                 )
-            
+                
             #Calculation loss for Training using BCEWithLogitsLoss
-            loss_training = criterion(logits_train,label_train_PD1.float())
+            loss_training = criterion_train(logits_train,label_train_PD1.float())
             loss_training.backward()
+            torch.nn.utils.clip_grad_norm_(trace_model.parameters(), 1.0) #Fighting Vanish Gradient
             optimizer.step()
-            
+                
             epoch_loss += loss_training.item()
-            
+                
             # ============ PD1(Prediction, calculation of Accuracy) ============
             probs_PD1 = torch.sigmoid(logits_train)
             preds_PD1 = (probs_PD1 >= 0.5).float()
             correct_train_PD1 += (preds_PD1 == label_train_PD1).sum().item()
             total_train_PD1 += label_train_PD1.numel()
-            
+                
             #F1 Score For training 
             all_train_y_true.append(label_train_PD1.detach().cpu())
             all_train_y_pred.append(preds_PD1.detach().cpu())
-
+    
         #Training Loss and Accuracy 
         train_loss = epoch_loss / len(train_loader)
         train_acc_PD1 = correct_train_PD1 / max(total_train_PD1, 1)
-        
+            
         #F1 Score for training
-        all_train_y_true = torch.cat(all_train_y_true).numpy()
-        all_train_y_pred = torch.cat(all_train_y_pred).numpy()
+        all_train_y_true = torch.cat(all_train_y_true).numpy().ravel()
+        all_train_y_pred = torch.cat(all_train_y_pred).numpy().ravel()
         train_f1_PD1 = f1_score(all_train_y_true, all_train_y_pred, zero_division=0)
-        
+            
         #TensorBoard Writing
         tensor_board_writer.add_scalar("Train/F1_PD1", train_f1_PD1, epoch)
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
         tensor_board_writer.add_scalar("Train/Acc_PD1", train_acc_PD1, epoch)
-
-
+            
+    
+    
         # -------------------------------VALIDATION---------------------------
         #Initializing the validation variables    
         trace_model.eval()
         val_loss = 0.0
         correct_val_PD1 = 0
         total_val_PD1 = 0
-        
-
+    
+        all_val_y_true = []
+        all_val_probs = []
+    
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
-                    
                 label_val_PD1 = targets_val["PD1"].unsqueeze(1).to(device)
-
-                #Changing the Inputs -> to have GPU for JupyterGPUHub
-                inputs_val = {
-                    k: v.to(device)
-                    for k, v in inputs_val.items()
-                }
-                #Calculation of the timestamps(Part of Feature Engineer Trace Paper part 2.2)
+    
+                inputs_val = {k: v.to(device) for k, v in inputs_val.items()}
+    
                 delta_elapsed = get_elapsed_feature(inputs_val["timestamps"]).to(device)
                 delta_between = get_between_features(inputs_val["timestamps"]).to(device)
-
-                #Predictions of the model
+    
                 logits_val = trace_model(
                     inputs_val["aid"],
                     inputs_val["type"],
                     delta_elapsed,
                     delta_between
-                    )
-            
-                #Calculation loss for validation using BCEWithLogitsLoss
-                loss_validation = criterion(logits_val,label_val_PD1.float())
+                )
+    
+                loss_validation = criterion_validation(logits_val, label_val_PD1.float())
                 val_loss += loss_validation.item()
-
-                # ============ PD1(Prediction, calculation of Accuracy) ============
+    
                 probs_PD1_val = torch.sigmoid(logits_val)
+    
                 preds_PD1_val = (probs_PD1_val >= 0.5).float()
                 correct_val_PD1 += (preds_PD1_val == label_val_PD1).sum().item()
                 total_val_PD1 += label_val_PD1.numel()
-                
-                #F1 Score for validation
+    
                 all_val_y_true.append(label_val_PD1.detach().cpu())
-                all_val_y_pred.append(preds_PD1_val.detach().cpu())
-
+                all_val_probs.append(probs_PD1_val.detach().cpu())
+    
+        # ---- CONCATENAR ----
+        all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
+        all_val_probs = torch.cat(all_val_probs).numpy().ravel()
+    
+        thresholds = np.linspace(0.1, 0.9, 81)
+    
+        best_thr = 0.5
+        best_f1 = 0.0
+    
+        for t in thresholds:
+            preds_thr = (all_val_probs >= t).astype(int)
+            f1 = f1_score(all_val_y_true, preds_thr, zero_division=0)
+            
+            if f1 > best_f1:
+                best_f1 = f1
+                best_thr = t
+    
         
-        #F1 Score for Validation
-        all_val_y_true = torch.cat(all_val_y_true).numpy()
-        all_val_y_pred = torch.cat(all_val_y_pred).numpy()
-        val_f1_PD1 = f1_score(all_val_y_true, all_val_y_pred, zero_division=0)
-        
+        val_f1_PD1 = best_f1
+        if val_f1_PD1 > best_val_f1:
+            best_val_f1 = val_f1_PD1
+            best_global_thr = best_thr
+    
         
         #Validation Loss and Accuracy 
         val_loss /= len(validation_loader)
         val_acc_PD1 = correct_val_PD1 / max(total_val_PD1, 1)
-        
+        val_acc_best_thr = ((all_val_probs >= best_thr).astype(int) == all_val_y_true.astype(int)).mean()
         #TensorBoard
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
-        tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_PD1_best_thr", val_acc_best_thr, epoch)
         tensor_board_writer.add_scalar("Val/F1_PD1", val_f1_PD1, epoch)
+        tensor_board_writer.add_scalar("Val/Best_Threshold", best_thr, epoch)
+        tensor_board_writer.add_scalar("Val/Best_Global_Threshold", best_global_thr, epoch)
+    
         lr_scheduler.step(val_f1_PD1)
-                
-                
+                            
         print(
             f"Epoch [{epoch+1}/{num_epochs}] "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | Train F1: {train_f1_PD1:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc_PD1:.4f} | Val F1: {val_f1_PD1:.4f}"
+            f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_PD1:.4f} | "
+            f"BestThr: {best_thr:.3f} | ValAcc@BestThr: {val_acc_best_thr:.4f}"
         )
-        
-        
+
+            
+        current_lr = optimizer.param_groups[0]["lr"]
+        tensor_board_writer.add_scalar("LR", current_lr, epoch)
+        print(f"This is the LR: {current_lr}")
+            
         #Early Stopping
         early_stopping(val_f1_PD1, trace_model)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
-
     tensor_board_writer.close()
+       
+        
+
    
-    #Load the Best Checkpoint model
+        #Load the Best Checkpoint model
     early_stopping.load_best_weights(trace_model)
     
-    #
+    #Torch Save the best model
     torch.save({
         "model_state_dict": trace_model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "best_val_f1": val_f1_PD1,
-    }, "Final_PD1_16Batch_LrSchedulee_model_versionFINAL.pt")
+        "best_val_f1": best_val_f1,
+        "best_global_threshold": best_global_thr,
+    }, "Final_PD1_smoothed_FinalVersion.pt")
 
 
 
