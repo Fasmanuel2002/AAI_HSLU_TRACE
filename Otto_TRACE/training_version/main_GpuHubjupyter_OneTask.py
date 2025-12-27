@@ -50,7 +50,6 @@ def main():
     trace_model = trace_model.to(device)
     optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,cooldown=1,
-                                                        threshold=1e-4,
                                                         mode="max",
                                                         factor=0.5,
                                                         patience=2,
@@ -59,34 +58,38 @@ def main():
                                    min_delta=1e-4,
                                    mode="max",
                                    path="best_CheckPoint_bPD1h16_PD1_model_lr3-e5_wd1e-6_earlystopping_version_Smoothed_FinalVersion.pt")
-    num_epochs = 40
-    best_val_f1 = -1.0
-
+    
     #Summary Writer for tensorBoard
     tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping_version_Smoothed_FinalVersion")
     
     print("Started the Training")
     #Figthing Data Imbalanced
-    
     labels_list = []
     for inputs, targets in train_loader:
-        labels_list.append(targets["PD1"].view(-1))   # (B,)
-
-    labels = torch.cat(labels_list, dim=0)           # (N,)
+        labels_list.append(targets["PD1"].view(-1)) #(Batch, )
+    labels = torch.cat(labels_list, dim=0) #(N, )           
+    
+    #Number of positives in the train_loader
     num_pos = (labels == 1).sum().item()
+    #Number of Negatives in the train_loader
     num_neg = (labels == 0).sum().item()
-
     ratio = num_neg / max(num_pos, 1)
     smoothed_weight = torch.tensor([np.sqrt(ratio)], device=device)
     
-    criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) #adding for smothing the weights
+    
+    #adding for smoothing the weights only for Training 
+    criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) 
+    
     criterion_validation = torch.nn.BCEWithLogitsLoss()
     print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())
+    
     #Learning Rate Scheduler
     #To Save the Best F1 for the Model
     best_val_f1 = -1.0
     best_global_thr = 0.5
     
+    
+    num_epochs = 40
     for epoch in range(num_epochs):
         
         #F1 Score training
@@ -165,9 +168,9 @@ def main():
         val_loss = 0.0
         correct_val_PD1 = 0
         total_val_PD1 = 0
-    
-        all_val_y_true = []
+            
         all_val_probs = []
+        all_val_y_true = []
     
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
@@ -184,12 +187,12 @@ def main():
                     delta_elapsed,
                     delta_between
                 )
-    
+                
                 loss_validation = criterion_validation(logits_val, label_val_PD1.float())
                 val_loss += loss_validation.item()
-    
+
+                #Logits converted to sigmoid
                 probs_PD1_val = torch.sigmoid(logits_val)
-    
                 preds_PD1_val = (probs_PD1_val >= 0.5).float()
                 correct_val_PD1 += (preds_PD1_val == label_val_PD1).sum().item()
                 total_val_PD1 += label_val_PD1.numel()
@@ -197,39 +200,38 @@ def main():
                 all_val_y_true.append(label_val_PD1.detach().cpu())
                 all_val_probs.append(probs_PD1_val.detach().cpu())
     
-        # ---- CONCATENAR ----
+        # ----Concatonate the Probabilities and true labels ----
         all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
         all_val_probs = torch.cat(all_val_probs).numpy().ravel()
     
+        #Searching for the right threshold from (0.1 -> 0.9) range
         thresholds = np.linspace(0.1, 0.9, 81)
-    
-        best_thr = 0.5
-        best_f1 = 0.0
-    
+        #Normal Threshold
+        threshold = 0.5
+        normal_f1 = 0.0
         for t in thresholds:
             preds_thr = (all_val_probs >= t).astype(int)
             f1 = f1_score(all_val_y_true, preds_thr, zero_division=0)
-            
-            if f1 > best_f1:
-                best_f1 = f1
-                best_thr = t
+            if f1 > normal_f1:
+                normal_f1 = f1
+                threshold = t
     
-        
-        val_f1_PD1 = best_f1
+        #Looking for the Best F1 Score
+        val_f1_PD1 = normal_f1
         if val_f1_PD1 > best_val_f1:
             best_val_f1 = val_f1_PD1
-            best_global_thr = best_thr
+            best_global_thr = threshold
     
         
         #Validation Loss and Accuracy 
         val_loss /= len(validation_loader)
-        val_acc_PD1 = correct_val_PD1 / max(total_val_PD1, 1)
-        val_acc_best_thr = ((all_val_probs >= best_thr).astype(int) == all_val_y_true.astype(int)).mean()
+        #val_acc_PD1 = correct_val_PD1 / max(total_val_PD1, 1)
+        val_acc_best_thr = ((all_val_probs >= threshold).astype(int) == all_val_y_true.astype(int)).mean()
         #TensorBoard
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
         tensor_board_writer.add_scalar("Val/Acc_PD1_best_thr", val_acc_best_thr, epoch)
         tensor_board_writer.add_scalar("Val/F1_PD1", val_f1_PD1, epoch)
-        tensor_board_writer.add_scalar("Val/Best_Threshold", best_thr, epoch)
+        tensor_board_writer.add_scalar("Val/Best_Threshold", threshold, epoch)
         tensor_board_writer.add_scalar("Val/Best_Global_Threshold", best_global_thr, epoch)
     
         lr_scheduler.step(val_f1_PD1)
@@ -238,10 +240,10 @@ def main():
             f"Epoch [{epoch+1}/{num_epochs}] "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | Train F1: {train_f1_PD1:.4f} | "
             f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_PD1:.4f} | "
-            f"BestThr: {best_thr:.3f} | ValAcc@BestThr: {val_acc_best_thr:.4f}"
+            f"BestThr: {threshold:.3f} | ValAcc@BestThr: {val_acc_best_thr:.4f}"
         )
 
-            
+        #Print the Current Learning rate after the Lr
         current_lr = optimizer.param_groups[0]["lr"]
         tensor_board_writer.add_scalar("LR", current_lr, epoch)
         print(f"This is the LR: {current_lr}")
@@ -251,15 +253,12 @@ def main():
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
-    tensor_board_writer.close()
-       
         
-
-   
-        #Load the Best Checkpoint model
+    tensor_board_writer.close()
+    #Saves the Model CheckPoint if the JupyterGpuHub the session expires
     early_stopping.load_best_weights(trace_model)
     
-    #Torch Save the best model
+    #Save the total Model after the training
     torch.save({
         "model_state_dict": trace_model.state_dict(),
         "best_val_f1": best_val_f1,
