@@ -67,21 +67,27 @@ def main():
     labels_list = []
     for inputs, targets in train_loader:
         labels_list.append(targets["PD1"].view(-1)) #(Batch, )
+        
     labels = torch.cat(labels_list, dim=0) #(N, )           
     
     #Number of positives in the train_loader
     num_pos = (labels == 1).sum().item()
+    
     #Number of Negatives in the train_loader
     num_neg = (labels == 0).sum().item()
+    
     ratio = num_neg / max(num_pos, 1)
+    
     smoothed_weight = torch.tensor([np.sqrt(ratio)], device=device)
     
+    print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())
     
     #adding for smoothing the weights only for Training 
     criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) 
     
     criterion_validation = torch.nn.BCEWithLogitsLoss()
-    print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())
+    
+    
     
     #Learning Rate Scheduler
     #To Save the Best F1 for the Model
