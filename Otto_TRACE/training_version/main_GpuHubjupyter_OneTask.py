@@ -60,11 +60,11 @@ def main():
                                    path="best_CheckPoint_bPD1h16_PD1_model_lr3-e5_wd1e-6_earlystopping_version_Smoothed_FinalVersion.pt")
     
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping_version_Smoothed_FinalVersion")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping_version_SamplerVersion")
     
     print("Started the Training")
     #Figthing Data Imbalanced
-    labels_list = []
+    """labels_list = []
     for inputs, targets in train_loader:
         labels_list.append(targets["PD1"].view(-1)) #(Batch, )
         
@@ -80,12 +80,12 @@ def main():
     
     smoothed_weight = torch.tensor([np.sqrt(ratio)], device=device)
     
-    print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())
+    print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())"""
     
     #adding for smoothing the weights only for Training 
-    criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) 
+    #criterion_train = torch.nn.BCEWithLogitsLoss() 
     
-    criterion_validation = torch.nn.BCEWithLogitsLoss()
+    criterion = torch.nn.BCEWithLogitsLoss()
     
     
     
@@ -135,7 +135,7 @@ def main():
                 )
                 
             #Calculation loss for Training using BCEWithLogitsLoss
-            loss_training = criterion_train(logits_train,label_train_PD1.float())
+            loss_training = criterion(logits_train,label_train_PD1.float())
             loss_training.backward()
             torch.nn.utils.clip_grad_norm_(trace_model.parameters(), 1.0) #Fighting Vanish Gradient
             optimizer.step()
@@ -194,7 +194,7 @@ def main():
                     delta_between
                 )
                 
-                loss_validation = criterion_validation(logits_val, label_val_PD1.float())
+                loss_validation = criterion(logits_val, label_val_PD1.float())
                 val_loss += loss_validation.item()
 
                 #Logits converted to sigmoid
