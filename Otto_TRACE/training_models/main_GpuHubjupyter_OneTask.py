@@ -137,7 +137,6 @@ def main():
             #Calculation loss for Training using BCEWithLogitsLoss
             loss_training = criterion(logits_train,label_train_PD1.float())
             loss_training.backward()
-            torch.nn.utils.clip_grad_norm_(trace_model.parameters(), 1.0) #Fighting Vanish Gradient
             optimizer.step()
                 
             epoch_loss += loss_training.item()
