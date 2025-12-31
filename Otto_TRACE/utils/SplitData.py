@@ -4,6 +4,7 @@ from typing import Tuple
 from dataset.otto_trace import TraceOttoDataSet
 from torch.utils.data import random_split
 from torch.utils.data import DataLoader, WeightedRandomSampler
+import numpy as np
 import torch
 
 def split_data_Train_Val_Test(data_set : TraceOttoDataSet, batch_size: int = 32) -> Tuple[DataLoader, DataLoader, DataLoader]:
@@ -25,8 +26,8 @@ def split_data_Train_Val_Test(data_set : TraceOttoDataSet, batch_size: int = 32)
     num_ones = (labels == 1).sum().item()
     num_zeros = (labels == 0).sum().item()
     
-    weights_ones = 1.0 / max(num_ones, 1)
-    weights_zeros = 1.0 / max(num_zeros, 1)
+    weights_ones = np.sqrt(1.0 / max(num_ones, 1))
+    weights_zeros = np.sqrt(1.0 / max(num_zeros, 1))
     class_weights = torch.tensor([weights_zeros, weights_ones], dtype=torch.double) 
     
     sample_weights = class_weights[labels].double()
