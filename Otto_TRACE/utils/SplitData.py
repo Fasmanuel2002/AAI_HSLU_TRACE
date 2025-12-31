@@ -21,16 +21,20 @@ def split_data_Train_Val_Test(data_set : TraceOttoDataSet, batch_size: int = 32)
     for i in range(len(train_data)):
         inputs, targets = train_data[i]
         labels.append(int(targets["PD1"]))
+    
     labels = torch.tensor(labels, dtype=torch.int64)
     
     num_ones = (labels == 1).sum().item()
+    
     num_zeros = (labels == 0).sum().item()
     
-    weights_ones = np.sqrt(1.0 / max(num_ones, 1))
-    weights_zeros = np.sqrt(1.0 / max(num_zeros, 1))
+    weights_ones = 1.0 / max(num_ones, 1)
+    
+    weights_zeros = 1.0 / max(num_zeros, 1)
+    
     class_weights = torch.tensor([weights_zeros, weights_ones], dtype=torch.double) 
     
-    sample_weights = class_weights[labels].double()
+    sample_weights = class_weights[labels]
 
     sampler = WeightedRandomSampler(sample_weights, 
                                     num_samples=len(sample_weights),
