@@ -48,7 +48,7 @@ def main():
     )  
     
     trace_model = trace_model.to(device)
-    optimizer = optim.AdamW(trace_model.parameters(), lr=3e-5, weight_decay=1e-6)
+    optimizer = optim.AdamW(trace_model.parameters(), lr=5e-5, weight_decay=1e-6)
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,cooldown=1,
                                                         mode="max",
                                                         factor=0.5,
@@ -57,14 +57,14 @@ def main():
     early_stopping = EarlyStopping(patience=7,
                                    min_delta=1e-4,
                                    mode="max",
-                                   path="best_CheckPoint_bPD1h16_PD1_model_lr3-e5_wd1e-6_earlystopping_version_Smoothed_FinalVersion.pt")
+                                   path=f"ModelTrace_MoreNeurons_lossWeighted4_1_1_2026_CheckPoint.pt")
     
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/HyperParameterTuning_lr3-e5_wd1e-6_earlystopping_version_SamplerVersion")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/Testing_HyperparameterTuning_1/01/2026_version1_MoreNeurons_lossWeighted4")
     
     print("Started the Training")
     #Figthing Data Imbalanced
-    """labels_list = []
+    labels_list = []
     for inputs, targets in train_loader:
         labels_list.append(targets["PD1"].view(-1)) #(Batch, )
         
@@ -78,14 +78,14 @@ def main():
     
     ratio = num_neg / max(num_pos, 1)
     
-    smoothed_weight = torch.tensor([np.sqrt(ratio)], device=device)
+    smoothed_weight = torch.tensor([ratio], device=device)
     
-    print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())"""
+    print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())
     
     #adding for smoothing the weights only for Training 
-    #criterion_train = torch.nn.BCEWithLogitsLoss() 
+    criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) 
     
-    criterion = torch.nn.BCEWithLogitsLoss()
+    criterion_validation = torch.nn.BCEWithLogitsLoss()
     
     
     
@@ -135,7 +135,7 @@ def main():
                 )
                 
             #Calculation loss for Training using BCEWithLogitsLoss
-            loss_training = criterion(logits_train,label_train_PD1.float())
+            loss_training = criterion_train(logits_train,label_train_PD1.float())
             loss_training.backward()
             optimizer.step()
                 
@@ -193,7 +193,7 @@ def main():
                     delta_between
                 )
                 
-                loss_validation = criterion(logits_val, label_val_PD1.float())
+                loss_validation = criterion_validation(logits_val, label_val_PD1.float())
                 val_loss += loss_validation.item()
 
                 #Logits converted to sigmoid
@@ -245,7 +245,7 @@ def main():
             f"Epoch [{epoch+1}/{num_epochs}] "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | Train F1: {train_f1_PD1:.4f} | "
             f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_PD1:.4f} | "
-            f"BestThr: {threshold:.3f} | ValAcc@BestThr: {val_acc_best_thr:.4f}"
+            f"BestThr: {threshold:.3f} | ValAcc_BestThr: {val_acc_best_thr:.4f}"
         )
 
         #Print the Current Learning rate after the Lr
@@ -268,7 +268,7 @@ def main():
         "model_state_dict": trace_model.state_dict(),
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
-    }, "Final_PD1_smoothed_FinalVersion.pt")
+    }, "ModelTrace_MoreNeurons_lossWeighted4_version_1_1_2026.pt")
 
 
 
