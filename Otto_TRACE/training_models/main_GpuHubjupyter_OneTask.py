@@ -1,3 +1,5 @@
+import os
+import numpy as np
 import torch
 import torch.optim as optim
 from utils.SplitData import split_data_Train_Val_Test
@@ -5,12 +7,10 @@ from torch.utils.tensorboard import SummaryWriter # type: ignore
 
 from model.trace import TRACE
 from dataset.otto_trace import TraceOttoDataSet
-
-from utils.EarlyStopping import EarlyStopping
 from utils.feature_engineering import get_between_features, get_elapsed_feature
-from sklearn.metrics import f1_score
-import os
-import numpy as np
+from utils.EarlyStopping import EarlyStopping
+from sklearn.metrics import f1_score,precision_score,recall_score
+
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -212,17 +212,22 @@ def main():
         #Searching for the right threshold from (0.1 -> 0.9) range
         thresholds = np.linspace(0.1, 0.9, 81)
         #Normal Threshold
-        threshold = 0.5
-        normal_f1 = 0.0
+        best_thr = 0.5
+        best_f1 = 0.0
         for t in thresholds:
             preds_thr = (all_val_probs >= t).astype(int)
             f1 = f1_score(all_val_y_true, preds_thr, zero_division=0)
-            if f1 > normal_f1:
-                normal_f1 = f1
-                threshold = t
-    
+            if f1 > best_f1:
+                best_f1 = f1
+                best_thr = t
+        
         #Looking for the Best F1 Score
-        val_f1_PD1 = normal_f1
+        val_f1_PD1 = best_f1
+        threshold = best_thr
+        val_pred = (all_val_probs >= threshold).astype(int)
+        val_precision = precision_score(all_val_y_true, val_pred, zero_division=0)
+        val_recall = recall_score(all_val_y_true, val_pred, zero_division=0)
+        
         if val_f1_PD1 > best_val_f1:
             best_val_f1 = val_f1_PD1
             best_global_thr = threshold
@@ -238,14 +243,17 @@ def main():
         tensor_board_writer.add_scalar("Val/F1_PD1", val_f1_PD1, epoch)
         tensor_board_writer.add_scalar("Val/Best_Threshold", threshold, epoch)
         tensor_board_writer.add_scalar("Val/Best_Global_Threshold", best_global_thr, epoch)
-    
+        tensor_board_writer.add_scalar("Val/Precision_PD1", val_precision, epoch)
+        tensor_board_writer.add_scalar("Val/Recall_PD1", val_recall, epoch)
+
         lr_scheduler.step(val_f1_PD1)
                             
         print(
             f"Epoch [{epoch+1}/{num_epochs}] "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | Train F1: {train_f1_PD1:.4f} | "
             f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_PD1:.4f} | "
-            f"BestThr: {threshold:.3f} | ValAcc_BestThr: {val_acc_best_thr:.4f}"
+            f"BestThr: {threshold:.3f} | Val Acc: {val_acc_best_thr:.4f} "
+            f"Val Precision: {val_precision} | Val Recall {val_recall} "
         )
 
         #Print the Current Learning rate after the Lr
