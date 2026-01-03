@@ -130,7 +130,7 @@ class TraceOttoDataSet(OttoDataSetSession):
     """
     def __ATC_task_logit__(self) -> List:
         """
-        Labels for ATC (User added to the cart in the FUTURE)
+        Labels for ATC (User added to the cart 3 times in the FUTURE)
         """
         logits_ATC = []
         for target_part in self.targets:
@@ -140,7 +140,7 @@ class TraceOttoDataSet(OttoDataSetSession):
     
     def __SAT__task_logit__(self) -> List:
         """
-        Counts the highest number of timestamps per product, used in Logit SAT4 (Seeing the same Aid 4 times)
+        Labels for SAT (User saw the same Aid(product) 4 times in the session)
         """
         logits_SAT = []
         for session in self.targets:
@@ -177,7 +177,7 @@ class TraceOttoDataSet(OttoDataSetSession):
     
     def __RA1_task_logit___(self) -> List:
         """
-        Logits for RA1(Return to the same Aid in 1 days)
+        Logits for RA1(Return to the same Aid in 1 day)
         """
         ONE_DAY = (86400 * 1000) 
         logits_RA1 = []
