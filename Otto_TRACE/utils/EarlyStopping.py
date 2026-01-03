@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 class EarlyStopping:
@@ -7,7 +6,7 @@ class EarlyStopping:
                     min_delta: float = 0.0, #The minimum improvement we require to say "this is an improvement".
                     mode : str = "min", #val_loss, 
                     restore_best_weights : bool = True, #Save the best model in the run
-                    path: str = "best_TRACE_model.pt",
+                    path: str = "Best_CheckPoint_model.pt",
                     verbose: bool = True #print
                     ):
         
