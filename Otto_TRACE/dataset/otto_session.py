@@ -25,7 +25,6 @@ class OttoDataSetSession(Dataset):
                 timestamps.append(event["ts"])
                 events_type.append(self.event_map[event["type"]])
                 
-            # Jan: If the session does not have enough timestamps, drop it here
             if len(timestamps) < min_timestamps_per_sample:
                 continue
 
@@ -36,7 +35,6 @@ class OttoDataSetSession(Dataset):
                     'type': np.array(events_type)
                 })
             
-            # Jan: Use this to limit the amount of data during development
             if max_samples is not None and i >= max_samples:
                 break
 
