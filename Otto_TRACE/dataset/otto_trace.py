@@ -78,8 +78,8 @@ class TraceOttoDataSet(OttoDataSetSession):
            
         
     def __cut_input_target__(self, min_value=0.80, max_value=0.90) -> Tuple[List, List]:
-        input_batches = []
-        target_batches = []
+        inputs_part = []
+        targets_part = []
 
         # Jan: This seems rather suboptimal, another iteration through the array of sessions
 
@@ -103,10 +103,10 @@ class TraceOttoDataSet(OttoDataSetSession):
                 "type": single_session["type"][input_size:]
             }
 
-            input_batches.append(input_part)
-            target_batches.append(target_part)
+            inputs_part.append(input_part)
+            targets_part.append(target_part)
 
-        return input_batches, target_batches
+        return inputs_part, targets_part
 
 
             
