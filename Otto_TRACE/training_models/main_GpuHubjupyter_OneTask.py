@@ -10,7 +10,7 @@ from dataset.otto_trace import TraceOttoDataSet
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
-
+import torch.nn.functional as F
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -48,7 +48,7 @@ def main():
     )  
     
     trace_model = trace_model.to(device)
-    optimizer = optim.AdamW(trace_model.parameters(), lr=5e-5, weight_decay=1e-6)
+    optimizer = optim.AdamW(trace_model.parameters(), lr=10e-5, weight_decay=1e-6)
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,cooldown=1,
                                                         mode="max",
                                                         factor=0.5,
@@ -57,11 +57,13 @@ def main():
     early_stopping = EarlyStopping(patience=7,
                                    min_delta=1e-4,
                                    mode="max",
-                                   path=f"ModelTrace_MoreNeurons_lossWeighted4_1_1_2026_CheckPoint.pt")
+                                   path=f"ModelTrace_MoreNeurons_lossWeighted_3_1_2026_CheckPoint.pt")
     
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/Testing_HyperparameterTuning_1/01/2026_version1_MoreNeurons_lossWeighted4")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/Testing_HyperparameterTuning_3_01_2026_version1_MoreNeurons_lossWeighted4")
     
+    
+    """
     print("Started the Training")
     #Figthing Data Imbalanced
     labels_list = []
@@ -84,11 +86,12 @@ def main():
     
     #adding for smoothing the weights only for Training 
     criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) 
-    
+    """
     criterion_validation = torch.nn.BCEWithLogitsLoss()
     
     
-    
+    w_pos = torch.tensor([4.0], device=device)
+    w_neg = torch.tensor([1.0], device=device)
     #Learning Rate Scheduler
     #To Save the Best F1 for the Model
     best_val_f1 = -1.0
@@ -101,10 +104,8 @@ def main():
         #F1 Score training
         all_train_y_true = []
         all_train_y_pred = []
-            
-        #F1 Score validation
         all_val_y_true = []
-            
+        all_val_probs = []
             
         # -------------------------------TRAINING ---------------------------
         #Initializing the training variables
@@ -115,7 +116,7 @@ def main():
             
         for inputs_train, targets_train in train_loader:
                 
-            label_train_PD1 = targets_train["PD1"].unsqueeze(1).to(device)
+            target_train_PD1 = targets_train["PD1"].unsqueeze(1).to(device)
             #Changing the Inputs -> to have GPU for JupyterGPUHub
             inputs_train = {
                 k: v.to(device)
@@ -133,9 +134,11 @@ def main():
                     delta_elapsed,
                     delta_between
                 )
+            
+            weights = torch.where(target_train_PD1 == 1, w_pos, w_neg)
                 
             #Calculation loss for Training using BCEWithLogitsLoss
-            loss_training = criterion_train(logits_train,label_train_PD1.float())
+            loss_training = F.binary_cross_entropy_with_logits(logits_train,target_train_PD1.float(), weight=weights)
             loss_training.backward()
             optimizer.step()
                 
@@ -144,11 +147,11 @@ def main():
             # ============ PD1(Prediction, calculation of Accuracy) ============
             probs_PD1 = torch.sigmoid(logits_train)
             preds_PD1 = (probs_PD1 >= 0.5).float()
-            correct_train_PD1 += (preds_PD1 == label_train_PD1).sum().item()
-            total_train_PD1 += label_train_PD1.numel()
+            correct_train_PD1 += (preds_PD1 == target_train_PD1).sum().item()
+            total_train_PD1 += target_train_PD1.numel()
                 
             #F1 Score For training 
-            all_train_y_true.append(label_train_PD1.detach().cpu())
+            all_train_y_true.append(target_train_PD1.detach().cpu())
             all_train_y_pred.append(preds_PD1.detach().cpu())
     
         #Training Loss and Accuracy 
@@ -179,7 +182,7 @@ def main():
     
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
-                label_val_PD1 = targets_val["PD1"].unsqueeze(1).to(device)
+                target_val_PD1 = targets_val["PD1"].unsqueeze(1).to(device)
     
                 inputs_val = {k: v.to(device) for k, v in inputs_val.items()}
     
@@ -193,16 +196,16 @@ def main():
                     delta_between
                 )
                 
-                loss_validation = criterion_validation(logits_val, label_val_PD1.float())
+                loss_validation = criterion_validation(logits_val, target_val_PD1.float())
                 val_loss += loss_validation.item()
 
                 #Logits converted to sigmoid
                 probs_PD1_val = torch.sigmoid(logits_val)
                 preds_PD1_val = (probs_PD1_val >= 0.5).float()
-                correct_val_PD1 += (preds_PD1_val == label_val_PD1).sum().item()
-                total_val_PD1 += label_val_PD1.numel()
+                correct_val_PD1 += (preds_PD1_val == target_val_PD1).sum().item()
+                total_val_PD1 += target_val_PD1.numel()
     
-                all_val_y_true.append(label_val_PD1.detach().cpu())
+                all_val_y_true.append(target_val_PD1.detach().cpu())
                 all_val_probs.append(probs_PD1_val.detach().cpu())
     
         # ----Concatonate the Probabilities and true labels ----
@@ -276,7 +279,7 @@ def main():
         "model_state_dict": trace_model.state_dict(),
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
-    }, "ModelTrace_MoreNeurons_lossWeighted4_version_1_1_2026.pt")
+    }, "ModelTrace_MoreNeurons_lossWeighted4_version_3_1_2026.pt")
 
 
 
