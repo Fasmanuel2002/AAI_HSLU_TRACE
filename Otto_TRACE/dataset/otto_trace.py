@@ -30,15 +30,15 @@ class TraceOttoDataSet(OttoDataSetSession):
         self.RA1 = self.__RA1_task_logit___()
     
     def __getitem__(self, index) -> Tuple[dict, dict]:
-        inputs_sessions = {
+        inputs = {
             "session_id": torch.tensor(self.inputs[index]["session_id"], dtype=torch.int64),
             "aid": torch.tensor(self.inputs[index]["aid"], dtype=torch.int64),
             "timestamps": torch.tensor(self.inputs[index]["timestamps"], dtype=torch.long),
             "type": torch.tensor(self.inputs[index]["type"], dtype=torch.int64),
         }
 
-        #4 classes
-        target_sessions = {
+        #4 classes for multi-learning task
+        targets = {
             "ATC": self.ATC[index],
             "SAT": self.SAT[index],
             "PD1": self.PD1[index],
@@ -46,7 +46,7 @@ class TraceOttoDataSet(OttoDataSetSession):
             }
 
         
-        return (inputs_sessions, target_sessions)
+        return (inputs, targets)
         
      
         
@@ -77,7 +77,7 @@ class TraceOttoDataSet(OttoDataSetSession):
         }
            
         
-    def __cut_input_target__(self, min_value=0.80, max_value=0.90) -> Tuple:
+    def __cut_input_target__(self, min_value=0.80, max_value=0.90) -> Tuple[List, List]:
         input_batches = []
         target_batches = []
 
@@ -130,7 +130,9 @@ class TraceOttoDataSet(OttoDataSetSession):
     """
     def __ATC_task_logit__(self) -> List:
         """
-        Labels for ATC (User added to the cart 3 times in the FUTURE)
+        ATC (Add-to-Cart frequency):
+            1 if the user adds products to the cart at least 3 times
+            during the session, 0 otherwise.
         """
         logits_ATC = []
         for target_part in self.targets:
@@ -140,7 +142,10 @@ class TraceOttoDataSet(OttoDataSetSession):
     
     def __SAT__task_logit__(self) -> List:
         """
-        Labels for SAT (User saw the same Aid(product) 4 times in the session)
+        SAT (Repeated item views):
+            1 if the user views the same article identifier (AID) at least
+            4 times within a session, indicating strong browsing interest.
+
         """
         logits_SAT = []
         for session in self.targets:
@@ -157,7 +162,9 @@ class TraceOttoDataSet(OttoDataSetSession):
     
     def __PD1_task_logit___(self) -> List:
         """
-        Logits for PD1(Make any Purchase within a day)
+        PD1 (Purchase within 1 day):
+            1 if the user completes a purchase within one day after the
+            last observed event in the session, 0 otherwise.
         """
         logits_PD1 = []
         ONE_DAY = (86400 * 1000) 
@@ -177,10 +184,12 @@ class TraceOttoDataSet(OttoDataSetSession):
     
     def __RA1_task_logit___(self) -> List:
         """
-        Logits for RA1(Return to the same Aid in 1 day)
+        RA1 (Return to item within 1 day):
+            1 if the same AID appears again in a different session within
+            the next one-day window, 0 otherwise.
         """
-        ONE_DAY = (86400 * 1000) 
         logits_RA1 = []
+        ONE_DAY = (86400 * 1000) 
         for session in self.targets:
             first_aid = session["aid"][0]
             first_ts = session["timestamps"][0]
