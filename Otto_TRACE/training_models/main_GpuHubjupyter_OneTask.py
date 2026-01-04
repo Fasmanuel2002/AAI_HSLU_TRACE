@@ -63,7 +63,7 @@ def main():
     tensor_board_writer = SummaryWriter(log_dir=f"runs/Testing_HyperparameterTuning_3_01_2026_version1_MoreNeurons_lossWeighted4")
     
     
-    """
+    
     print("Started the Training")
     #Figthing Data Imbalanced
     labels_list = []
@@ -80,17 +80,17 @@ def main():
     
     ratio = num_neg / max(num_pos, 1)
     
-    smoothed_weight = torch.tensor([ratio], device=device)
+    #smoothed_weight = torch.tensor([ratio], device=device)
     
-    print("Train pos/neg:", num_pos, num_neg, "pos_weight:", smoothed_weight.item())
+    print("Train pos/neg:", num_pos, num_neg)
     
-    #adding for smoothing the weights only for Training 
-    criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) 
-    """
+    ##adding for smoothing the weights only for Training 
+    #criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) 
+    
     criterion_validation = torch.nn.BCEWithLogitsLoss()
     
     
-    w_pos = torch.tensor([4.0], device=device)
+    w_pos = torch.tensor([ratio], device=device)
     w_neg = torch.tensor([1.0], device=device)
     #Learning Rate Scheduler
     #To Save the Best F1 for the Model
