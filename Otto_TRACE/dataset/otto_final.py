@@ -87,19 +87,33 @@ class TraceOttoDataset(OttoDataSetSession):
         self._split_range = random.uniform
         
         
-    @staticmethod
-    def _most_frequent(a_list : List) -> Tuple:
-        """
-        Counts the highest number of timestamps per product, used in Logit SAT4 (Seeing the same Aid 4 times)
-        """
-        dict = {}
-        count, itm = 0, ''
-        for item in reversed(a_list):
-            dict[item] = dict.get(item, 0) + 1
-            if dict[item] >= count :
-                count, itm = dict[item], item
-        return (count, itm)
+    
+    def __getitem__(self, index) -> Tuple[Dict, Dict]:
+        session = self.session[index]
         
+        #Split 
+        input_part, target_part = self.__split_input_target__(session)
+        
+        #Padding input
+        input_part_padded = self.__pad_input_sequence__([input_part])[0]
+
+        
+        inputs = {
+            "session_id" : torch.tensor(input_part_padded["session_id"], dtype=torch.int64),
+            "aid" : torch.tensor(input_part_padded["aid"], dtype=torch.int64),
+            "timestamps" : torch.tensor(input_part_padded["timestamps"], dtype=torch.long),
+            "type": torch.tensor(input_part_padded["type"], dtype=torch.int64)
+        }
+        
+        targets = {
+            "ATC" : torch.tensor(self.__ATC_task_logit__(target_part), dtype=torch.int64),
+            "SAT" : torch.tensor(self.__SAT__task_logit__(target_part), dtype=torch.int64),
+            "PD1" : torch.tensor(self.__PD1_task_logit___(target_part), dtype=torch.int64),
+            "RA1" : torch.tensor(self.__RA1_task_logit___(target_part), dtype=torch.int64)
+        }
+        
+        return inputs, targets
+    
     def __pad_input_sequence__(self, input) -> List:
         session_padded = []
         for session in input:
@@ -137,9 +151,19 @@ class TraceOttoDataset(OttoDataSetSession):
         
         return input_part, target_part
     
-    
-    
-    
+    @staticmethod
+    def _most_frequent(a_list : List) -> Tuple:
+        """
+        Counts the highest number of timestamps per product, used in Logit SAT4 (Seeing the same Aid 4 times)
+        """
+        dict = {}
+        count, itm = 0, ''
+        for item in reversed(a_list):
+            dict[item] = dict.get(item, 0) + 1
+            if dict[item] >= count :
+                count, itm = dict[item], item
+        return (count, itm)
+        
     @staticmethod
     def __padding__(input_seq_len : int , session : Dict) -> Dict:   
         padd_len = input_seq_len - len(session["timestamps"])
@@ -188,6 +212,8 @@ class TraceOttoDataset(OttoDataSetSession):
         
         return 1 if count >= 4 else 0
     @staticmethod
+    
+    
     def __PD1_task_logit___(target_part : Dict) -> int:
         """
         PD1 (Purchase within 1 day):
@@ -224,32 +250,6 @@ class TraceOttoDataset(OttoDataSetSession):
         is_aids = any((other_ts - first_ts) <= ONE_DAY for other_ts in other_ts_list)
         return 1 if is_aids else 0
 
-    
-    def __getitem__(self, index) -> Tuple[Dict, Dict]:
-        session = self.session[index]
-        
-        #Split 
-        input_part, target_part = self.__split_input_target__(session)
-        
-        #Padding input
-        input_part_padded = self.__pad_input_sequence__([input_part])[0]
-
-        
-        inputs = {
-            "session_id" : torch.tensor(input_part_padded["session_id"], dtype=torch.int64),
-            "aid" : torch.tensor(input_part_padded["aid"], dtype=torch.int64),
-            "timestamps" : torch.tensor(input_part_padded["timestamps"], dtype=torch.long),
-            "type": torch.tensor(input_part_padded["type"], dtype=torch.int64)
-        }
-        
-        targets = {
-            "ATC" : torch.tensor(self.__ATC_task_logit__(target_part), dtype=torch.int64),
-            "SAT" : torch.tensor(self.__SAT__task_logit__(target_part), dtype=torch.int64),
-            "PD1" : torch.tensor(self.__PD1_task_logit___(target_part), dtype=torch.int64),
-            "RA1" : torch.tensor(self.__RA1_task_logit___(target_part), dtype=torch.int64)
-        }
-        
-        return inputs, targets
             
            
 

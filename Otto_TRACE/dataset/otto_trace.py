@@ -136,7 +136,7 @@ class TraceOttoDataSet(OttoDataSetSession):
         """
         logits_ATC = []
         for target_part in self.targets:
-            atc_counts = sum(target==3 for target in target_part["type"])
+            atc_counts = sum(target==2 for target in target_part["type"])
             logits_ATC.append(1 if atc_counts>= 3 else 0)
         return logits_ATC
     
