@@ -100,21 +100,6 @@ class TraceOttoDataset(OttoDataSetSession):
                 count, itm = dict[item], item
         return (count, itm)
         
-    @staticmethod
-    def __padding__(input_seq_len : int , session : Dict) -> Dict:   
-        padd_len = input_seq_len - len(session["timestamps"])
-        zeros = np.zeros(padd_len)
-        
-        aid_padded = np.concatenate((session["aid"], zeros))
-        timestamps_padded = np.concatenate((session["timestamps"], zeros))
-        type_padded = np.concatenate((session["type"], zeros))
-        return {
-            "session_id":session["session_id"],
-            "aid": aid_padded,
-            "timestamps": timestamps_padded,
-            "type": type_padded
-        }
-    
     def __pad_input_sequence__(self, input) -> List:
         session_padded = []
         for session in input:
@@ -151,6 +136,25 @@ class TraceOttoDataset(OttoDataSetSession):
         }
         
         return input_part, target_part
+    
+    
+    
+    
+    @staticmethod
+    def __padding__(input_seq_len : int , session : Dict) -> Dict:   
+        padd_len = input_seq_len - len(session["timestamps"])
+        zeros = np.zeros(padd_len)
+        
+        aid_padded = np.concatenate((session["aid"], zeros))
+        timestamps_padded = np.concatenate((session["timestamps"], zeros))
+        type_padded = np.concatenate((session["type"], zeros))
+        return {
+            "session_id":session["session_id"],
+            "aid": aid_padded,
+            "timestamps": timestamps_padded,
+            "type": type_padded
+        }
+    
     
     """
     Logits of the the model
