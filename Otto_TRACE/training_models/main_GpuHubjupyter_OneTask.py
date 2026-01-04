@@ -212,33 +212,43 @@ def main():
         all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
         all_val_probs = torch.cat(all_val_probs).numpy().ravel()
     
-        #Searching for the right threshold from (0.1 -> 0.9) range
+        #Generate 81 possible threshold values from 0.1 to 0.9 (steps of 0.01).
         thresholds = np.linspace(0.1, 0.9, 81)
         #Normal Threshold
         best_thr = 0.5
         best_f1 = 0.0
         for t in thresholds:
+            # Convert continuous probabilities [0, 1] into binary predictions [0 or 1]
+            # based on the current threshold candidate 't'
             preds_thr = (all_val_probs >= t).astype(int)
             f1 = f1_score(all_val_y_true, preds_thr, zero_division=0)
+            
+            # If this threshold results in a better F1 score, update our best values
             if f1 > best_f1:
                 best_f1 = f1
                 best_thr = t
         
-        #Looking for the Best F1 Score
+        #Looking for the Best F1 Score and threshold
         val_f1_PD1 = best_f1
         threshold = best_thr
+        
+        # Generate final predictions using the newly discovered optimal threshold
         val_pred = (all_val_probs >= threshold).astype(int)
+        
+        # Calculate additional metrics (Precision and Recall) at this specific threshold
         val_precision = precision_score(all_val_y_true, val_pred, zero_division=0)
         val_recall = recall_score(all_val_y_true, val_pred, zero_division=0)
         
+        # If the F1 score of this epoch is the best seen so far across all epochs,
+        # we update the global "Best Model" variables to ensure we save the right threshold.
         if val_f1_PD1 > best_val_f1:
             best_val_f1 = val_f1_PD1
             best_global_thr = threshold
     
         
-        #Validation Loss and Accuracy 
+        #Validation Loss
         val_loss /= len(validation_loader)
-        #val_acc_PD1 = correct_val_PD1 / max(total_val_PD1, 1)
+        #calculates the optimized Accuracy based on the best threshold found
         val_acc_best_thr = ((all_val_probs >= threshold).astype(int) == all_val_y_true.astype(int)).mean()
         #TensorBoard
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
