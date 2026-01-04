@@ -143,7 +143,7 @@ class TraceOttoDataset(OttoDataSetSession):
     @staticmethod
     def __padding__(input_seq_len : int , session : Dict) -> Dict:   
         padd_len = input_seq_len - len(session["timestamps"])
-        zeros = np.zeros(padd_len)
+        zeros = np.zeros(padd_len, dtype=session["aid"].dtype)
         
         aid_padded = np.concatenate((session["aid"], zeros))
         timestamps_padded = np.concatenate((session["timestamps"], zeros))
@@ -232,8 +232,8 @@ class TraceOttoDataset(OttoDataSetSession):
         input_part, target_part = self.__split_input_target__(session)
         
         #Padding input
-        input_part_padded = self.__padding__(self.input_seq_len, input_part)
-        
+        input_part_padded = self.__pad_input_sequence__([input_part])[0]
+
         
         inputs = {
             "session_id" : torch.tensor(input_part_padded["session_id"], dtype=torch.int64),
