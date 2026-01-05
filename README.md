@@ -11,8 +11,25 @@ The TRACE architecture is built around a multi-task learning (MTL) framework, in
   <img width="682" alt="Training Pipeline" src="https://github.com/user-attachments/assets/4c82b31d-24c1-457d-8569-6bf3ca004317" />
 </p>
 
-The first step to run this project locally or on GPUHub is to install the required dependencies.
 
-## Installation
+## Installation Dependencies
+The first step to run this project locally or on GPUHub is to install the required dependencies.
 ```bash
 pip install -r requirements.txt
+```
+
+## Installation Dataset 
+The second step consists of downloading the dataset used in this investigation from the [OTTO RecSys Dataset](https://github.com/otto-de/recsys-dataset).
+
+You need to visit the following website to download the dataset:
+[Download from Kaggle](https://www.kaggle.com/competitions/otto-recommender-system/data)
+
+Download the `train.jsonl` file, which contains approximately **11 GB** of training data.
+
+## Repository Structure
+
+- `Otto_TRACE/dataset/`  
+  Contains the dataset processing pipeline based on the OTTO dataset. This class loads data from `train.jsonl`, constructs the model inputs, generates task-specific logits, and performs the input–target split used for training and evaluation.
+
+- `Otto_TRACE/training_models/`  
+  Contains the two versions of training pipeline for Singular Task Learning and Multi Task Learning, the purpose of this code format is for GPUHub, so it stays training after the computer is shutdown
