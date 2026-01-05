@@ -108,8 +108,8 @@ class TraceOttoDataset(OttoDataSetSession):
         targets = {
             "ATC" : torch.tensor(self.__ATC_task_logit__(target_part), dtype=torch.int64),
             "SAT" : torch.tensor(self.__SAT__task_logit__(target_part), dtype=torch.int64),
-            "PD1" : torch.tensor(self.__PD1_task_logit___(target_part), dtype=torch.int64),
-            "RA1" : torch.tensor(self.__RA1_task_logit___(target_part), dtype=torch.int64)
+            "PD1" : torch.tensor(self.__PD1_task_logit___(input_part,target_part), dtype=torch.int64),
+            "RA1" : torch.tensor(self.__RA1_task_logit__(target_part), dtype=torch.int64)
         }
         
         return inputs, targets
@@ -187,69 +187,81 @@ class TraceOttoDataset(OttoDataSetSession):
     def __ATC_task_logit__(target_part : Dict) -> int:
         """
         ATC (Add-to-Cart frequency):
-            1 if the user adds products to the cart at least 3 times
+            1 if the user adds products to the cart at least 2 times
             during the session, 0 otherwise.
         """
-        atc_counts = int(np.sum(target_part["type"] == 2))
-        return 1 if atc_counts >= 3 else 0
+        types = np.asarray(target_part["type"])
+        atc_counts = int(np.sum(types == 2))
+        return 1 if atc_counts >= 1 else 0
     
     @staticmethod
     def __SAT__task_logit__(target_part : Dict) -> int:
         """
         SAT (Repeated item views):
             1 if the user views the same article identifier (AID) at least
-            4 times within a session, indicating strong browsing interest.
-
+            3 times within a session, indicating strong browsing interest.
         """
-        count = 0
-        Aids_Repeated = []
         aids = target_part["aid"]
         if len(aids) == 0:
             return 0
-        for aid in target_part["aid"]:
-            Aids_Repeated.append(aid)
-            count, product = TraceOttoDataset._most_frequent(Aids_Repeated)  # type: ignore
-        
-        return 1 if count >= 4 else 0
+        count, _ = TraceOttoDataset._most_frequent(aids) 
+        return 1 if count >= 3 else 0
+    
     @staticmethod
-    
-    
-    def __PD1_task_logit___(target_part : Dict) -> int:
+    def __PD1_task_logit___(input_part : Dict ,target_part : Dict) -> int:
         """
         PD1 (Purchase within 1 day):
             1 if the user completes a purchase within one day after the
             last observed event in the session, 0 otherwise.
         """
-        ONE_DAY = (86400 * 1000) 
+        OneDay = 86400 * 1000  
+    
         if len(target_part["timestamps"]) == 0:
             return 0
-        
-        last_ts = target_part["timestamps"][-1]
-        ordered_ts = target_part["timestamps"][target_part["type"] == 3]
-        is_purchase = any([(order <= last_ts + ONE_DAY) for order in ordered_ts] )
-        return 1 if is_purchase else 0
+    
+        real_input_ts = [ts for ts in input_part["timestamps"] if ts > 0]
+        if not real_input_ts:
+            return 0
+        last_input_ts = real_input_ts[-1]
+    
+        purchase_ts = [
+            ts for ts, t in zip(target_part["timestamps"], target_part["type"])
+            if t == 3
+        ]
+        purchase_ts = np.asarray(purchase_ts)
+
+        diff = purchase_ts - last_input_ts
+        return int(np.any((0 < diff) & (diff <= OneDay)))
+
+
     
     @staticmethod
-    def __RA1_task_logit___(target_part: Dict) -> int:
+    def __RA1_task_logit__(target_part: Dict) -> int:
         """
         RA1 (Return to item within 1 day):
             1 if the first AID appears again within the next one-day window
-            inside the (suffix) sequence, 0 otherwise.
+            inside the sequence, 0 otherwise.
         """
-        ONE_DAY = (86400 * 1000)
+        ONE_DAY = 86400 * 1000
 
-        if len(target_part["aid"]) < 2:
+        aids = np.asarray(target_part["aid"])
+        ts   = np.asarray(target_part["timestamps"])
+
+        valid = ts > 0
+        aids, ts = aids[valid], ts[valid]
+
+        if aids.size < 2:
             return 0
 
-        first_aid = target_part["aid"][0]
-        first_ts = target_part["timestamps"][0]
+        first_aid = aids[0]
+        first_ts  = ts[0]
 
-        indices = [i for i, aid in enumerate(target_part["aid"]) if aid == first_aid]
-        other_ts_list = target_part["timestamps"][indices[1:]]
+        ts_same = ts[aids == first_aid]
+        if ts_same.size < 2:
+            return 0
 
-        is_aids = any((other_ts - first_ts) <= ONE_DAY for other_ts in other_ts_list)
-        return 1 if is_aids else 0
-
+        diff = ts_same[1:] - first_ts
+        return int(np.any((0 < diff) & (diff <= ONE_DAY)))
             
            
 
