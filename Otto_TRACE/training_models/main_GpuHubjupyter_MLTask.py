@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter # type: ignore
 import time
 import numpy as np
 from model.trace import TRACE
-from dataset.otto_trace import TraceOttoDataSet
+from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 
 from utils.EarlyStopping import EarlyStopping
@@ -18,7 +18,7 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 def main():
         #DataSet    
-    dataset_processed = TraceOttoDataSet(
+    dataset_processed = TraceOttoDataset(
         file_name='train.jsonl',
         input_seq_len=64,
         min_timestamps_per_sample=16,

@@ -1,4 +1,6 @@
-import os
+import os, sys
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, ROOT)
 import numpy as np
 import torch
 import torch.optim as optim
@@ -6,7 +8,7 @@ from utils.SplitData import split_data_Train_Val_Test
 from torch.utils.tensorboard import SummaryWriter # type: ignore
 
 from model.trace import TRACE
-from dataset.otto_trace import TraceOttoDataSet
+from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
@@ -18,10 +20,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def main():
     print("Beginning")
     #DataSet    
-    dataset_processed = TraceOttoDataSet(
-        file_name='train.jsonl',
+    dataset_processed = TraceOttoDataset(
+        file_name='../train.jsonl',
         input_seq_len=64,
         min_timestamps_per_sample=16,
+        max_samples=1000
     )
     
     #Split the Data into Training_loader, Validation_loader and test_loaders
@@ -48,19 +51,20 @@ def main():
     )  
     
     trace_model = trace_model.to(device)
-    optimizer = optim.AdamW(trace_model.parameters(), lr=10e-5, weight_decay=1e-6)
-    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,cooldown=1,
+    optimizer = optim.AdamW(trace_model.parameters(), lr=1e-4, weight_decay=1e-4)
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
+                                                        cooldown=1,
                                                         mode="max",
                                                         factor=0.5,
                                                         patience=2,
                                                         min_lr=1e-6)
-    early_stopping = EarlyStopping(patience=7,
+    early_stopping = EarlyStopping(patience=4,
                                    min_delta=1e-4,
                                    mode="max",
-                                   path=f"ModelTrace_MoreNeurons_lossWeighted_3_1_2026_CheckPoint.pt")
+                                   path=f"ModelTrace_MoreNeurons_lossWeighted_5_1_2026_CheckPoint.pt")
     
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/Testing_HyperparameterTuning_3_01_2026_version1_MoreNeurons_lossWeighted4")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/Testing_HyperparameterTuning_5_01_2026_version1_MoreNeurons_lossWeighted1.5")
     
     
     
@@ -90,8 +94,10 @@ def main():
     criterion_validation = torch.nn.BCEWithLogitsLoss()
     
     
-    w_pos = torch.tensor([ratio], device=device)
-    w_neg = torch.tensor([1.0], device=device)
+    w_pos = torch.tensor([1.5], device=device).float()
+    w_neg = torch.tensor([1.0], device=device).float()
+
+    print("w_pos and w_neg", w_pos, w_neg)
     #Learning Rate Scheduler
     #To Save the Best F1 for the Model
     best_val_f1 = -1.0
@@ -136,7 +142,8 @@ def main():
                 )
             
             weights = torch.where(target_train_PD1 == 1, w_pos, w_neg)
-                
+            print(logits_train.shape, target_train_PD1.shape, weights.shape)
+
             #Calculation loss for Training using BCEWithLogitsLoss
             loss_training = F.binary_cross_entropy_with_logits(logits_train,target_train_PD1.float(), weight=weights)
             loss_training.backward()
@@ -212,8 +219,8 @@ def main():
         all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
         all_val_probs = torch.cat(all_val_probs).numpy().ravel()
     
-        #Generate 81 possible threshold values from 0.1 to 0.9 (steps of 0.01).
-        thresholds = np.linspace(0.1, 0.9, 81)
+        #Generate 81 possible threshold values from 0.1 to 0.99 (steps of 0.01).
+        thresholds = np.linspace(0.01, 0.99, 99)
         #Normal Threshold
         best_thr = 0.5
         best_f1 = 0.0
@@ -265,7 +272,7 @@ def main():
             f"Epoch [{epoch+1}/{num_epochs}] "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_PD1:.4f} | Train F1: {train_f1_PD1:.4f} | "
             f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_PD1:.4f} | "
-            f"BestThr: {threshold:.3f} | Val Acc: {val_acc_best_thr:.4f} "
+            f"BestThr: {threshold:.3f} | Val Acc best threshold: {val_acc_best_thr:.4f} "
             f"Val Precision: {val_precision} | Val Recall {val_recall} "
         )
 

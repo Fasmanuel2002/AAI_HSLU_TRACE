@@ -1,13 +1,13 @@
 import os
 import sys
 from typing import Tuple
-from dataset.otto_trace import TraceOttoDataSet
+from dataset.otto_final import TraceOttoDataset
 from torch.utils.data import random_split
 from torch.utils.data import DataLoader, WeightedRandomSampler
 import numpy as np
 import torch
 
-def split_data_Train_Val_Test(data_set : TraceOttoDataSet, batch_size: int = 32) -> Tuple[DataLoader, DataLoader, DataLoader]:
+def split_data_Train_Val_Test(data_set : TraceOttoDataset, batch_size: int = 32) -> Tuple[DataLoader, DataLoader, DataLoader]:
     
     generator = torch.Generator().manual_seed(42)
     
