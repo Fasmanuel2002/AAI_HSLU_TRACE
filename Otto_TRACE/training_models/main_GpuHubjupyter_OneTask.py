@@ -11,7 +11,7 @@ from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr
+from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -22,7 +22,8 @@ def main():
     dataset_processed = TraceOttoDataset(
         file_name='train.jsonl',
         input_seq_len=64,
-        min_timestamps_per_sample=16
+        min_timestamps_per_sample=16,
+        max_samples=200000
     )
     
     #Split the Data into Training_loader, Validation_loader and test_loaders
@@ -108,8 +109,8 @@ def main():
         #F1 Score training
         all_train_y_true = []
         all_train_y_pred = []
-        all_val_y_true = []
         all_val_probs = []
+        all_val_y_true = []
             
         # -------------------------------TRAINING ---------------------------
         #Initializing the training variables
@@ -120,15 +121,15 @@ def main():
             
         for inputs_train, targets_train in train_loader:
                 
-            target_train_ATC = targets_train["ATC"].unsqueeze(1).to(device)
+            target_train_ATC = targets_train["ATC"].unsqueeze(1).to(device).float()
             #Changing the Inputs -> to have GPU for JupyterGPUHub
             inputs_train = {
                 k: v.to(device)
                     for k, v in inputs_train.items()
                 }
             #Calculation of the timestamps(Feature Engineer Trace Paper Part 2.2)
-            delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device)
-            delta_between = get_between_features(inputs_train["timestamps"]).to(device)
+            delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device).float()
+            delta_between = get_between_features(inputs_train["timestamps"]).to(device).float()
                 
             optimizer.zero_grad(set_to_none=True)
             #Predictions of the model
@@ -139,25 +140,19 @@ def main():
                     delta_between
                 )
             
-            weights = torch.where(target_train_ATC == 1, w_pos, w_neg)
+            weights = torch.where(target_train_ATC == 1.0, w_pos, w_neg)
 
             #Calculation loss for Training using BCEWithLogitsLoss
-            loss_training = F.binary_cross_entropy_with_logits(logits_train,target_train_ATC.float(), weight=weights)
+            loss_training = F.binary_cross_entropy_with_logits(logits_train,target_train_ATC, weight=weights)
             loss_training.backward()
             optimizer.step()
                 
             epoch_loss += loss_training.item()
                 
             # ============ ATC(Prediction, calculation of Accuracy) ============
-            probs_ATC = torch.sigmoid(logits_train)
-            preds_ATC = (probs_ATC >= 0.5).float()
-            correct_train_ATC += (preds_ATC == target_train_ATC).sum().item()
-            total_train_ATC += target_train_ATC.numel()
-                
-            #F1 Score For training 
-            all_train_y_true.append(target_train_ATC.detach().cpu())
-            all_train_y_pred.append(preds_ATC.detach().cpu())
-    
+            correct_train_ATC, total_train_ATC = update_binary_metrics(logits_train,target_train_ATC,correct_train_ATC,total_train_ATC,all_train_y_true,all_train_y_pred)
+            
+            
         #Training Loss and Accuracy 
         train_loss = epoch_loss / len(train_loader)
         train_acc_ATC = correct_train_ATC / max(total_train_ATC, 1)
@@ -178,20 +173,17 @@ def main():
         #Initializing the validation variables    
         trace_model.eval()
         val_loss = 0.0
-        correct_val_ATC = 0
-        total_val_ATC = 0
             
-        all_val_probs = []
-        all_val_y_true = []
-    
+        
+        
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
-                target_val_ATC = targets_val["ATC"].unsqueeze(1).to(device)
+                target_val_ATC = targets_val["ATC"].unsqueeze(1).to(device).float()
     
                 inputs_val = {k: v.to(device) for k, v in inputs_val.items()}
     
-                delta_elapsed = get_elapsed_feature(inputs_val["timestamps"]).to(device)
-                delta_between = get_between_features(inputs_val["timestamps"]).to(device)
+                delta_elapsed = get_elapsed_feature(inputs_val["timestamps"]).to(device).float()
+                delta_between = get_between_features(inputs_val["timestamps"]).to(device).float()
     
                 logits_val = trace_model(
                     inputs_val["aid"],
@@ -200,17 +192,11 @@ def main():
                     delta_between
                 )
                 
-                loss_validation = criterion_validation(logits_val, target_val_ATC.float())
+                loss_validation = criterion_validation(logits_val, target_val_ATC)
                 val_loss += loss_validation.item()
 
                 #Logits converted to sigmoid
-                probs_ATC_val = torch.sigmoid(logits_val)
-                preds_ATC_val = (probs_ATC_val >= 0.5).float()
-                correct_val_ATC += (preds_ATC_val == target_val_ATC).sum().item()
-                total_val_ATC += target_val_ATC.numel()
-    
-                all_val_y_true.append(target_val_ATC.detach().cpu())
-                all_val_probs.append(probs_ATC_val.detach().cpu())
+                append_probs_and_true(logits_val, target_val_ATC, all_val_probs, all_val_y_true)
     
         # ----Concatonate the Probabilities and true labels ----
         all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
