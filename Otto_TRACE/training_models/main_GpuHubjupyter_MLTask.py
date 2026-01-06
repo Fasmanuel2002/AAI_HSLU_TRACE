@@ -11,6 +11,7 @@ from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
 import torch.nn.functional as F
+from utils.training_utils import search_best_f1_thr
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -327,20 +328,10 @@ def main():
         
         thresholds = np.linspace(0.01,0.99, 99)
         
+        best_f1_ATC, best_thr_ATC = search_best_f1_thr(val_probs_ATC, val_true_ATC, thresholds)
         
-        best_thr_ATC, best_f1_ATC = 0.5, 0.0
-        for t in thresholds:
-            pred = (val_probs_ATC >= t).astype(int)
-            f1 = f1_score(val_true_ATC, pred, zero_division=0)
-            if f1 > best_f1_ATC:
-                best_f1_ATC, best_thr_ATC = f1, t
-
-        best_thr_SAT, best_f1_SAT = 0.5, 0.0
-        for t in thresholds:
-            pred = (val_probs_SAT >= t).astype(int)
-            f1 = f1_score(val_true_SAT, pred, zero_division=0)
-            if f1 > best_f1_SAT:
-                best_f1_SAT, best_thr_SAT = f1, t
+        best_f1_SAT, best_thr_SAT = search_best_f1_thr(val_probs_SAT, val_true_SAT, thresholds)
+        
             
         val_f1_ATC = best_f1_ATC
         threshold_ATC = best_thr_ATC

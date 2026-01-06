@@ -11,6 +11,7 @@ from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
 import torch.nn.functional as F
+from utils.training_utils import search_best_f1_thr
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -218,18 +219,9 @@ def main():
         #Generate 81 possible threshold values from 0.1 to 0.99 (steps of 0.01).
         thresholds = np.linspace(0.01, 0.99, 99)
         #Normal Threshold
-        best_thr = 0.5
-        best_f1 = 0.0
-        for t in thresholds:
-            # Convert continuous probabilities [0, 1] into binary predictions [0 or 1]
-            # based on the current threshold candidate 't'
-            preds_thr = (all_val_probs >= t).astype(int)
-            f1 = f1_score(all_val_y_true, preds_thr, zero_division=0)
-            
-            # If this threshold results in a better F1 score, update our best values
-            if f1 > best_f1:
-                best_f1 = f1
-                best_thr = t
+       
+        best_f1, best_thr = search_best_f1_thr(all_val_probs, all_val_y_true, thresholds)
+        
         
         #Looking for the Best F1 Score and threshold
         val_f1_ATC = best_f1
