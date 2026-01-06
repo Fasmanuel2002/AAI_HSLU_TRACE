@@ -68,8 +68,6 @@ class TRACE(nn.Module):
                 
         self.GBMP = nn.AdaptiveMaxPool1d(output_size=1)
         
-        # Jan: Why this? You have parameter num_classes, use it!
-        #self.__ATC__ = MLP(input_channels=self.D_model, output_channels=1)
         
         self.MLP_layer = MLP(input_channels=self.D_model, 
                              output_channels=num_classes)
