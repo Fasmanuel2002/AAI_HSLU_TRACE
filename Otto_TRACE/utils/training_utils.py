@@ -1,5 +1,6 @@
 from sklearn.metrics import f1_score
-from typing import Tuple
+from typing import Tuple, List
+import torch
 
 def search_best_f1_thr(val_probs, val_true, thresholds) -> Tuple[float, float]: 
     """
@@ -14,3 +15,40 @@ def search_best_f1_thr(val_probs, val_true, thresholds) -> Tuple[float, float]:
         if f1 > best_f1:
             best_f1, best_thr = f1, t
     return best_thr, float(best_f1)
+
+
+def update_binary_metrics(
+    logit : torch.Tensor,
+    targets : torch.Tensor,
+    correct_predictions : int,
+    total_predictions : int,
+    y_true_list : list,
+    y_pred_list : list,
+    threshold : float = 0.5
+    ) -> Tuple[int,int]:
+    
+    probs = torch.sigmoid(logit)
+    preds = (probs >= threshold).float()
+    
+    correct_predictions += (preds == targets).sum().item() # type: ignore
+    total_predictions += targets.numel()
+    
+    y_true_list.append(targets.detach().cpu())
+    y_pred_list.append(preds.detach().cpu())
+    
+    return correct_predictions, total_predictions
+
+
+def append_probs_and_true(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    probs_list: List[torch.Tensor],
+    true_list: List[torch.Tensor],
+) -> None:
+    """
+    Appends sigmoid probabilities and targets (both moved to CPU) to lists.
+    logits/targets expected shape: (B, 1) for binary task.
+    """
+    probs = torch.sigmoid(logits)
+    probs_list.append(probs.detach().cpu())
+    true_list.append(targets.detach().cpu())
