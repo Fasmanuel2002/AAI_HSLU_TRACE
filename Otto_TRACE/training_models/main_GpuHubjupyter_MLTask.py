@@ -9,9 +9,11 @@ from model.trace import TRACE
 from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
-from sklearn.metrics import f1_score,precision_score,recall_score
+from sklearn.metrics import f1_score
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr
+from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true
+
+
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -101,12 +103,12 @@ def main():
 
     for epoch in range(num_epochs):
         #F1 Score for Training ATC
-        all_train_y_true_ATC = []
-        all_train_y_pred_ATC = []
+        train_y_true_ATC = []
+        train_y_pred_ATC = []
 
         #F1 Score training for SAT
-        all_train_y_true_SAT = []
-        all_train_y_pred_SAT = []
+        train_y_true_SAT = []
+        train_y_pred_SAT = []
             
             
         
@@ -116,13 +118,10 @@ def main():
 
         correct_train_ATC = 0
         correct_train_SAT = 0
-        #correct_train_PD1 = 0
-        #correct_train_RA1 = 0
 
         total_train_ATC = 0
         total_train_SAT = 0
-        #total_train_PD1 = 0
-        #total_train_RA1 = 0
+    
 
         for inputs_train, targets_train in train_loader:
 
@@ -169,37 +168,11 @@ def main():
             epoch_loss += loss_training.item()
 
             # ============ ATC ============
-            probs_ATC = torch.sigmoid(pred_ATC)
-            preds_ATC = (probs_ATC >= 0.5).float()
-            correct_train_ATC += (preds_ATC == target_train_ATC).sum().item()
-            total_train_ATC += target_train_ATC.numel()
-            
-            all_train_y_true_ATC.append(target_train_ATC.detach().cpu())
-            all_train_y_pred_ATC.append(preds_ATC.detach().cpu())
-            
-
+            correct_train_ATC, total_train_ATC = update_binary_metrics(pred_ATC,target_train_ATC,correct_train_ATC,total_train_ATC,train_y_true_ATC,train_y_pred_ATC)
             # ============ SAT ============
-            probs_SAT = torch.sigmoid(pred_SAT)
-            preds_SAT = (probs_SAT >= 0.5).float()
-            correct_train_SAT += (preds_SAT == target_train_SAT).sum().item()
-            total_train_SAT += target_train_SAT.numel()
-            
-            all_train_y_true_SAT.append(target_train_SAT.detach().cpu())
-            all_train_y_pred_SAT.append(preds_SAT.detach().cpu())
-            
-
-            """# ============ PD1 ============
-            probs_PD1 = torch.sigmoid(pred_PD1)
-            preds_PD1 = (probs_PD1 >= 0.5).float()
-            correct_train_PD1 += (preds_PD1 == label_train_PD1).sum().item()
-            total_train_PD1 += label_train_PD1.numel()
-
-            # ============ RA1 ============
-            probs_RA1 = torch.sigmoid(pred_RA1)
-            preds_RA1 = (probs_RA1 >= 0.5).float()
-            correct_train_RA1 += (preds_RA1 == label_train_RA1).sum().item()
-            total_train_RA1 += label_train_RA1.numel()
-            """
+            correct_train_SAT, total_train_SAT = update_binary_metrics(pred_SAT, target_train_SAT, correct_train_SAT, total_train_SAT, train_y_true_SAT, train_y_pred_SAT)
+        
+    
             
             
         train_loss = epoch_loss / len(train_loader)
@@ -211,15 +184,15 @@ def main():
         """
         
         #F1 Score for training ATC
-        all_train_y_true_ATC = torch.cat(all_train_y_true_ATC).numpy().ravel()
-        all_train_y_pred_ATC = torch.cat(all_train_y_pred_ATC).numpy().ravel()
-        train_f1_ATC = f1_score(all_train_y_true_ATC, all_train_y_pred_ATC, zero_division=0)
+        train_y_true_ATC = torch.cat(train_y_true_ATC).numpy().ravel()
+        train_y_pred_ATC = torch.cat(train_y_pred_ATC).numpy().ravel()
+        train_f1_ATC = f1_score(train_y_true_ATC, train_y_pred_ATC, zero_division=0)
         
         
         #F1 Score for training ATC
-        all_train_y_true_SAT = torch.cat(all_train_y_true_SAT).numpy().ravel()
-        all_train_y_pred_SAT = torch.cat(all_train_y_pred_SAT).numpy().ravel()
-        train_f1_SAT = f1_score(all_train_y_true_SAT, all_train_y_pred_SAT, zero_division=0)
+        train_y_true_SAT = torch.cat(train_y_true_SAT).numpy().ravel()
+        train_y_pred_SAT = torch.cat(train_y_pred_SAT).numpy().ravel()
+        train_f1_SAT = f1_score(train_y_true_SAT, train_y_pred_SAT, zero_division=0)
         
         #TensorBoard Writing
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
@@ -233,30 +206,15 @@ def main():
         # -------------------------------VALIDATION---------------------------
         trace_model.eval()
         val_loss = 0.0
-
-        correct_val_ATC = 0
-        correct_val_SAT = 0
-        #correct_val_PD1 = 0
-        #correct_val_RA1 = 0
-
-        total_val_ATC = 0
-        total_val_SAT = 0
-        #total_val_PD1 = 0
-        #total_val_RA1 = 0
-
-        all_val_probs_ATC = []
-        all_val_y_true_ATC = []
-        all_val_probs_SAT = []
-        all_val_y_true_SAT = []
+        val_probs_ATC, val_true_ATC = [], []
+        val_probs_SAT, val_true_SAT = [], []
 
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
 
                 target_val_ATC = targets_val["ATC"].unsqueeze(1).to(device).float()
                 target_val_SAT = targets_val["SAT"].unsqueeze(1).to(device).float()
-                #target_val_PD1 = targets_val["PD1"].unsqueeze(1).to(device)
-                #target_val_RA1 = targets_val["RA1"].unsqueeze(1).to(device)
-
+        
                 inputs_val = {
                     k: v.to(device)
                     for k, v in inputs_val.items()
@@ -271,60 +229,28 @@ def main():
                     delta_between
                 )
 
-                pred_ATC_val = logits_val[:, 0:1]
-                pred_SAT_val = logits_val[:, 1:2]
-                #pred_PD1_val = logits_val[:, 2:3]
-                #pred_RA1_val = logits_val[:, 3:4]
+                logits_ATC_val = logits_val[:, 0:1]
+                logits_SAT_val = logits_val[:, 1:2]
+            
                 
-                loss_ATC_val = criterion_validation(pred_ATC_val, target_val_ATC)
-                loss_SAT_val = criterion_validation(pred_SAT_val, target_val_SAT)
-                #loss_PD1_val = criterion_validation(pred_PD1_val, target_val_PD1.float())
-                #loss_RA1_val = criterion_validation(pred_RA1_val, target_val_RA1.float())
-
-                loss_validation = loss_ATC_val + loss_SAT_val #+ loss_PD1_val + loss_RA1_val
+                loss_ATC_val = criterion_validation(logits_ATC_val, target_val_ATC)
+                loss_SAT_val = criterion_validation(logits_SAT_val, target_val_SAT)
+            
+                
+                loss_validation = loss_ATC_val + loss_SAT_val
                 val_loss += loss_validation.item()
 
-                
-                probs_ATC_val = torch.sigmoid(pred_ATC_val)
-                probs_SAT_val = torch.sigmoid(pred_SAT_val)
-                
-                probs_SAT_0_5 = (probs_SAT_val >= 0.5).float()
-                probs_ATC_0_5 = (probs_ATC_val >= 0.5).float()
-                
-                correct_val_ATC += (probs_ATC_0_5 == target_val_ATC).sum().item()
-                total_val_ATC += target_val_ATC.numel()
-                
-                correct_val_SAT += (probs_SAT_0_5 == target_val_SAT).sum().item()
-                total_val_SAT += target_val_SAT.numel()
-                
-                      
-                all_val_y_true_ATC.append(target_val_ATC.detach().cpu())
-                all_val_probs_ATC.append(probs_ATC_val.detach().cpu())
-            
-                all_val_y_true_SAT.append(target_val_SAT.detach().cpu())
-                all_val_probs_SAT.append(probs_SAT_val.detach().cpu())
+                append_probs_and_true(logits_ATC_val, target_val_ATC, val_probs_ATC, val_true_ATC)
+                append_probs_and_true(logits_SAT_val, target_val_SAT, val_probs_SAT, val_true_SAT)
+         
+         
+         
+        val_probs_ATC = torch.cat(val_probs_ATC).numpy().ravel()
+        val_true_ATC  = torch.cat(val_true_ATC).numpy().ravel()
 
-                """
-                probs_PD1_val = torch.sigmoid(pred_PD1_val)
-                probs_PD1_val = (probs_PD1_val >= 0.5).float()
-                correct_val_PD1 += (probs_PD1_val == target_val_PD1).sum().item()
-                total_val_PD1 += target_val_PD1.numel()
+        val_probs_SAT = torch.cat(val_probs_SAT).numpy().ravel()
+        val_true_SAT  = torch.cat(val_true_SAT).numpy().ravel()
 
-                probs_RA1_val = torch.sigmoid(pred_RA1_val)
-                probs_RA1_val = (probs_RA1_val >= 0.5).float()
-                correct_val_RA1 += (probs_RA1_val == target_val_RA1).sum().item()
-                total_val_RA1 += target_val_RA1.numel()
-
-                """
-        
-        val_acc_ATC_05 = correct_val_ATC / max(total_val_ATC, 1)
-        val_acc_SAT_05 = correct_val_SAT / max(total_val_SAT, 1)
-
-        val_probs_ATC = torch.cat(all_val_probs_ATC).numpy().ravel()
-        val_true_ATC  = torch.cat(all_val_y_true_ATC).numpy().ravel()
-
-        val_probs_SAT = torch.cat(all_val_probs_SAT).numpy().ravel()
-        val_true_SAT  = torch.cat(all_val_y_true_SAT).numpy().ravel()
         
         thresholds = np.linspace(0.01,0.99, 99)
         
@@ -335,7 +261,6 @@ def main():
             
         val_f1_ATC = best_f1_ATC
         threshold_ATC = best_thr_ATC
-        
         
         val_f1_SAT = best_f1_SAT
         threshold_SAT = best_thr_SAT
@@ -357,10 +282,9 @@ def main():
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
         tensor_board_writer.add_scalar("Val/ATC_F1", val_f1_ATC, epoch)
         tensor_board_writer.add_scalar("Val/SAT_F1", val_f1_SAT, epoch)
+       
         tensor_board_writer.add_scalar("Val/Acc_ATC_best_thr", val_acc_best_thr_ATC, epoch)
         tensor_board_writer.add_scalar("Val/Acc_sat_best_thr", val_acc_best_thr_SAT, epoch)
-        tensor_board_writer.add_scalar("Val/Acc_ATC_0.5", val_acc_ATC_05, epoch)
-        tensor_board_writer.add_scalar("Val/Acc_SAT_0.5", val_acc_SAT_05, epoch)
         tensor_board_writer.add_scalar("Val/f1_mean", val_f1_mean, epoch)
 
         #tensor_board_writer.add_scalar("Val/Acc_SAT", val_acc_SAT, epoch)
