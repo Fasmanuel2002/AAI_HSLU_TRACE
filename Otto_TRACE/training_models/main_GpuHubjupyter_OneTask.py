@@ -21,8 +21,7 @@ def main():
     dataset_processed = TraceOttoDataset(
         file_name='train.jsonl',
         input_seq_len=64,
-        min_timestamps_per_sample=16,
-        max_samples=200000
+        min_timestamps_per_sample=16
     )
     
     #Split the Data into Training_loader, Validation_loader and test_loaders
@@ -44,7 +43,7 @@ def main():
     trace_model = TRACE(
         num_embeddings_aid=num_embeddings_aid,
         num_embeddings_event_type=num_embeddings_event_type,
-        embedding_dim=63,
+        embedding_dim=32,
         num_classes=1
     )  
     
@@ -59,10 +58,10 @@ def main():
     early_stopping = EarlyStopping(patience=7,
                                    min_delta=1e-4,
                                    mode="max",
-                                   path=f"ModelTrace_MoreNeurons_PD3_lossWeighted_5_1_2026_CheckPoint.pt")
+                                   path=f"Model_TRACE_checkpoint_ATC_task.pt")
     
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/Testing_HyperparameterTuning_5_01_2026_version_PD3_MoreNeurons_lossWeighted1.5")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/ATC_task/")
     
     
     
@@ -70,7 +69,7 @@ def main():
     #Figthing Data Imbalanced
     labels_list = []
     for inputs, targets in train_loader:
-        labels_list.append(targets["RA1"].view(-1)) #(Batch, )
+        labels_list.append(targets["ATC"].view(-1)) #(Batch, )
         
     labels = torch.cat(labels_list, dim=0) #(N, )           
     
@@ -92,7 +91,7 @@ def main():
     
     criterion_validation = torch.nn.BCEWithLogitsLoss()
     
-    w_pos = torch.tensor([ratio], device=device).float() #2.5
+    w_pos = torch.tensor([ratio], device=device).float() 
     w_neg = torch.tensor([1.0], device=device).float()
 
     print("w_pos and w_neg", w_pos, w_neg)
@@ -115,12 +114,12 @@ def main():
         #Initializing the training variables
         trace_model.train()
         epoch_loss = 0.0
-        correct_train_RA1 = 0
-        total_train_RA1 = 0
+        correct_train_ATC = 0
+        total_train_ATC = 0
             
         for inputs_train, targets_train in train_loader:
                 
-            target_train_RA1 = targets_train["RA1"].unsqueeze(1).to(device)
+            target_train_ATC = targets_train["ATC"].unsqueeze(1).to(device)
             #Changing the Inputs -> to have GPU for JupyterGPUHub
             inputs_train = {
                 k: v.to(device)
@@ -139,38 +138,38 @@ def main():
                     delta_between
                 )
             
-            weights = torch.where(target_train_RA1 == 1, w_pos, w_neg)
+            weights = torch.where(target_train_ATC == 1, w_pos, w_neg)
 
             #Calculation loss for Training using BCEWithLogitsLoss
-            loss_training = F.binary_cross_entropy_with_logits(logits_train,target_train_RA1.float(), weight=weights)
+            loss_training = F.binary_cross_entropy_with_logits(logits_train,target_train_ATC.float(), weight=weights)
             loss_training.backward()
             optimizer.step()
                 
             epoch_loss += loss_training.item()
                 
-            # ============ RA1(Prediction, calculation of Accuracy) ============
-            probs_RA1 = torch.sigmoid(logits_train)
-            preds_RA1 = (probs_RA1 >= 0.5).float()
-            correct_train_RA1 += (preds_RA1 == target_train_RA1).sum().item()
-            total_train_RA1 += target_train_RA1.numel()
+            # ============ ATC(Prediction, calculation of Accuracy) ============
+            probs_ATC = torch.sigmoid(logits_train)
+            preds_ATC = (probs_ATC >= 0.5).float()
+            correct_train_ATC += (preds_ATC == target_train_ATC).sum().item()
+            total_train_ATC += target_train_ATC.numel()
                 
             #F1 Score For training 
-            all_train_y_true.append(target_train_RA1.detach().cpu())
-            all_train_y_pred.append(preds_RA1.detach().cpu())
+            all_train_y_true.append(target_train_ATC.detach().cpu())
+            all_train_y_pred.append(preds_ATC.detach().cpu())
     
         #Training Loss and Accuracy 
         train_loss = epoch_loss / len(train_loader)
-        train_acc_RA1 = correct_train_RA1 / max(total_train_RA1, 1)
+        train_acc_ATC = correct_train_ATC / max(total_train_ATC, 1)
             
         #F1 Score for training
         all_train_y_true = torch.cat(all_train_y_true).numpy().ravel()
         all_train_y_pred = torch.cat(all_train_y_pred).numpy().ravel()
-        train_f1_RA1 = f1_score(all_train_y_true, all_train_y_pred, zero_division=0)
+        train_f1_ATC = f1_score(all_train_y_true, all_train_y_pred, zero_division=0)
             
         #TensorBoard Writing
-        tensor_board_writer.add_scalar("Train/F1_RA1", train_f1_RA1, epoch)
+        tensor_board_writer.add_scalar("Train/F1_ATC", train_f1_ATC, epoch)
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
-        tensor_board_writer.add_scalar("Train/Acc_RA1", train_acc_RA1, epoch)
+        tensor_board_writer.add_scalar("Train/Acc_ATC", train_acc_ATC, epoch)
             
     
     
@@ -178,15 +177,15 @@ def main():
         #Initializing the validation variables    
         trace_model.eval()
         val_loss = 0.0
-        correct_val_RA1 = 0
-        total_val_RA1 = 0
+        correct_val_ATC = 0
+        total_val_ATC = 0
             
         all_val_probs = []
         all_val_y_true = []
     
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
-                target_val_RA1 = targets_val["RA1"].unsqueeze(1).to(device)
+                target_val_ATC = targets_val["ATC"].unsqueeze(1).to(device)
     
                 inputs_val = {k: v.to(device) for k, v in inputs_val.items()}
     
@@ -200,17 +199,17 @@ def main():
                     delta_between
                 )
                 
-                loss_validation = criterion_validation(logits_val, target_val_RA1.float())
+                loss_validation = criterion_validation(logits_val, target_val_ATC.float())
                 val_loss += loss_validation.item()
 
                 #Logits converted to sigmoid
-                probs_RA1_val = torch.sigmoid(logits_val)
-                preds_RA1_val = (probs_RA1_val >= 0.5).float()
-                correct_val_RA1 += (preds_RA1_val == target_val_RA1).sum().item()
-                total_val_RA1 += target_val_RA1.numel()
+                probs_ATC_val = torch.sigmoid(logits_val)
+                preds_ATC_val = (probs_ATC_val >= 0.5).float()
+                correct_val_ATC += (preds_ATC_val == target_val_ATC).sum().item()
+                total_val_ATC += target_val_ATC.numel()
     
-                all_val_y_true.append(target_val_RA1.detach().cpu())
-                all_val_probs.append(probs_RA1_val.detach().cpu())
+                all_val_y_true.append(target_val_ATC.detach().cpu())
+                all_val_probs.append(probs_ATC_val.detach().cpu())
     
         # ----Concatonate the Probabilities and true labels ----
         all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
@@ -233,7 +232,7 @@ def main():
                 best_thr = t
         
         #Looking for the Best F1 Score and threshold
-        val_f1_RA1 = best_f1
+        val_f1_ATC = best_f1
         threshold = best_thr
         
         # Generate final predictions using the newly discovered optimal threshold
@@ -245,8 +244,8 @@ def main():
         
         # If the F1 score of this epoch is the best seen so far across all epochs,
         # we update the global "Best Model" variables to ensure we save the right threshold.
-        if val_f1_RA1 > best_val_f1:
-            best_val_f1 = val_f1_RA1
+        if val_f1_ATC > best_val_f1:
+            best_val_f1 = val_f1_ATC
             best_global_thr = threshold
     
         
@@ -256,19 +255,19 @@ def main():
         val_acc_best_thr = ((all_val_probs >= threshold).astype(int) == all_val_y_true.astype(int)).mean()
         #TensorBoard
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
-        tensor_board_writer.add_scalar("Val/Acc_RA1_best_thr", val_acc_best_thr, epoch)
-        tensor_board_writer.add_scalar("Val/F1_RA1", val_f1_RA1, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_ATC_best_thr", val_acc_best_thr, epoch)
+        tensor_board_writer.add_scalar("Val/F1_ATC", val_f1_ATC, epoch)
         tensor_board_writer.add_scalar("Val/Best_Threshold", threshold, epoch)
         tensor_board_writer.add_scalar("Val/Best_Global_Threshold", best_global_thr, epoch)
-        tensor_board_writer.add_scalar("Val/Precision_RA1", val_precision, epoch)
-        tensor_board_writer.add_scalar("Val/Recall_RA1", val_recall, epoch)
+        tensor_board_writer.add_scalar("Val/Precision_ATC", val_precision, epoch)
+        tensor_board_writer.add_scalar("Val/Recall_ATC", val_recall, epoch)
 
-        lr_scheduler.step(val_f1_RA1)
+        lr_scheduler.step(val_f1_ATC)
                             
         print(
             f"Epoch [{epoch+1}/{num_epochs}] "
-            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_RA1:.4f} | Train F1: {train_f1_RA1:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_RA1:.4f} | "
+            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_ATC:.4f} | Train F1: {train_f1_ATC:.4f} | "
+            f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_ATC:.4f} | "
             f"BestThr: {threshold:.3f} | Val Acc best threshold: {val_acc_best_thr:.4f} "
             f"Val Precision: {val_precision} | Val Recall {val_recall} "
         )
@@ -279,7 +278,7 @@ def main():
         print(f"This is the LR: {current_lr}")
             
         #Early Stopping
-        early_stopping(val_f1_RA1, trace_model)
+        early_stopping(val_f1_ATC.__float__(), trace_model)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
@@ -293,7 +292,7 @@ def main():
         "model_state_dict": trace_model.state_dict(),
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
-    }, "ModelTrace_MoreNeurons_lossWeighted_PD3_version_3_1_2026.pt")
+    }, "Model_TRACE_ATC_FinalVersion_SingleTask.pt")
 
 
 

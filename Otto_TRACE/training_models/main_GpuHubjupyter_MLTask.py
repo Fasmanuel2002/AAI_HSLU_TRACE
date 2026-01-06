@@ -370,22 +370,16 @@ def main():
         tensor_board_writer.add_scalar("Val/Acc_sat_best_thr", val_acc_best_thr_SAT, epoch)
         tensor_board_writer.add_scalar("Val/Acc_ATC_0.5", val_acc_ATC_05, epoch)
         tensor_board_writer.add_scalar("Val/Acc_SAT_0.5", val_acc_SAT_05, epoch)
+        tensor_board_writer.add_scalar("Val/f1_mean", val_f1_mean, epoch)
 
         #tensor_board_writer.add_scalar("Val/Acc_SAT", val_acc_SAT, epoch)
         #tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
         #tensor_board_writer.add_scalar("Val/Acc_RA1", val_acc_RA1, epoch)
         
         lr_scheduler.step(val_f1_mean)
-        print(
-            f"Epoch [{epoch+1}/{num_epochs}] "
-            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_ATC:.4f} | Train F1: {train_f1_ATC:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_ATC:.4f} | "
-        )
-        print(
-            f"Epoch [{epoch+1}/{num_epochs}] "
-            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_SAT:.4f} | Train F1: {train_f1_SAT:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_SAT:.4f} | "
-        )
+        print(f"Epoch [{epoch+1}/{num_epochs}] | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        print(f"Train Acc ATC : {train_acc_ATC:.4f} | Train F1 ATC: {train_f1_ATC:.4f} | Val F1 ATC: {val_f1_ATC:.4f} | ")
+        print(f"Train Acc SAT : {train_acc_SAT:.4f} | Train F1 SAT: {train_f1_SAT:.4f} | Val F1 SAT: {val_f1_SAT:.4f} | ")
         print(f"Val F1 mean: {val_f1_mean:.4f} | Thr: {threshold_ATC:.2f}/{threshold_SAT:.2f}")
         #Print the Current Learning rate after the Lr
         current_lr = optimizer.param_groups[0]["lr"]
