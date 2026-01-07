@@ -14,7 +14,8 @@ def search_best_f1_thr(val_probs, val_true, thresholds) -> Tuple[float, float]:
         f1 = f1_score(val_true, pred, zero_division=0)
         if f1 > best_f1:
             best_f1, best_thr = f1, t
-    return best_thr, float(best_f1)
+    return float(best_f1), float(best_thr)
+
 
 
 def update_binary_metrics(
