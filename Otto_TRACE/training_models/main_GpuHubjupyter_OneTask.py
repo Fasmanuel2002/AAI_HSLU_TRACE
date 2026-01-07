@@ -23,9 +23,22 @@ def main():
         file_name='train.jsonl',
         input_seq_len=64,
         min_timestamps_per_sample=16,
-        max_samples=200000
+        max_samples=100000
     )
+    print(dataset_processed.__getitem__(2))
     
+    print("\n\nWhat task you want to train")
+    print("ATC (Add-to-Cart frequency)")
+    print("SAT (Repeated item views) ")
+    print("PD1 (Purchase within 1 day) ")
+    print("RA1 (Return to item within 1 day)")
+    
+    task_train = input("Please choose: ").strip().upper()
+
+    if task_train not in {"ATC", "SAT", "PD1", "RA1"}:
+        raise ValueError(f"Invalid task '{task_train}'. Choose ATC, SAT, PD1 or RA1.")
+
+
     #Split the Data into Training_loader, Validation_loader and test_loaders
     train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed, batch_size=128)
     
@@ -60,10 +73,10 @@ def main():
     early_stopping = EarlyStopping(patience=7,
                                    min_delta=1e-4,
                                    mode="max",
-                                   path=f"Model_TRACE_checkpoint_ATC_task.pt")
+                                   path=f"Model_TRACE_checkpoint_{task_train}_task.pt")
     
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/ATC_task/")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/{task_train}/")
     
     
     
@@ -71,7 +84,8 @@ def main():
     #Figthing Data Imbalanced
     labels_list = []
     for inputs, targets in train_loader:
-        labels_list.append(targets["ATC"].view(-1)) #(Batch, )
+        assert task_train in targets, f"Unknown task: {task_train}"
+        labels_list.append(targets[task_train].view(-1)) #(Batch, )
         
     labels = torch.cat(labels_list, dim=0) #(N, )           
     
@@ -116,12 +130,12 @@ def main():
         #Initializing the training variables
         trace_model.train()
         epoch_loss = 0.0
-        correct_train_ATC = 0
-        total_train_ATC = 0
+        correct_train = 0
+        total_train = 0
             
         for inputs_train, targets_train in train_loader:
                 
-            target_train_ATC = targets_train["ATC"].unsqueeze(1).to(device).float()
+            target_train = targets_train[task_train].unsqueeze(1).to(device).float()
             #Changing the Inputs -> to have GPU for JupyterGPUHub
             inputs_train = {
                 k: v.to(device)
@@ -140,32 +154,32 @@ def main():
                     delta_between
                 )
             
-            weights = torch.where(target_train_ATC == 1.0, w_pos, w_neg)
+            weights = torch.where(target_train == 1.0, w_pos, w_neg)
 
             #Calculation loss for Training using BCEWithLogitsLoss
-            loss_training = F.binary_cross_entropy_with_logits(logits_train,target_train_ATC, weight=weights)
+            loss_training = F.binary_cross_entropy_with_logits(logits_train,target_train, weight=weights)
             loss_training.backward()
             optimizer.step()
                 
             epoch_loss += loss_training.item()
                 
-            # ============ ATC(Prediction, calculation of Accuracy) ============
-            correct_train_ATC, total_train_ATC = update_binary_metrics(logits_train,target_train_ATC,correct_train_ATC,total_train_ATC,all_train_y_true,all_train_y_pred)
+            # ============(Prediction, calculation of Accuracy) ============
+            correct_train, total_train = update_binary_metrics(logits_train,target_train,correct_train,total_train,all_train_y_true,all_train_y_pred)
             
             
         #Training Loss and Accuracy 
         train_loss = epoch_loss / len(train_loader)
-        train_acc_ATC = correct_train_ATC / max(total_train_ATC, 1)
+        train_acc = correct_train / max(total_train, 1)
             
         #F1 Score for training
         all_train_y_true = torch.cat(all_train_y_true).numpy().ravel()
         all_train_y_pred = torch.cat(all_train_y_pred).numpy().ravel()
-        train_f1_ATC = f1_score(all_train_y_true, all_train_y_pred, zero_division=0)
+        train_f1 = f1_score(all_train_y_true, all_train_y_pred, zero_division=0)
             
         #TensorBoard Writing
-        tensor_board_writer.add_scalar("Train/F1_ATC", train_f1_ATC, epoch)
+        tensor_board_writer.add_scalar("Train/F1", train_f1, epoch)
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
-        tensor_board_writer.add_scalar("Train/Acc_ATC", train_acc_ATC, epoch)
+        tensor_board_writer.add_scalar("Train/Acc", train_acc, epoch)
             
     
     
@@ -178,7 +192,7 @@ def main():
         
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
-                target_val_ATC = targets_val["ATC"].unsqueeze(1).to(device).float()
+                target_val = targets_val[task_train].unsqueeze(1).to(device).float()
     
                 inputs_val = {k: v.to(device) for k, v in inputs_val.items()}
     
@@ -192,11 +206,11 @@ def main():
                     delta_between
                 )
                 
-                loss_validation = criterion_validation(logits_val, target_val_ATC)
+                loss_validation = criterion_validation(logits_val, target_val)
                 val_loss += loss_validation.item()
 
                 #Logits converted to sigmoid
-                append_probs_and_true(logits_val, target_val_ATC, all_val_probs, all_val_y_true)
+                append_probs_and_true(logits_val, target_val, all_val_probs, all_val_y_true)
     
         # ----Concatonate the Probabilities and true labels ----
         all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
@@ -210,7 +224,7 @@ def main():
         
         
         #Looking for the Best F1 Score and threshold
-        val_f1_ATC = best_f1
+        val_f1 = best_f1
         threshold = best_thr
         
         # Generate final predictions using the newly discovered optimal threshold
@@ -222,8 +236,8 @@ def main():
         
         # If the F1 score of this epoch is the best seen so far across all epochs,
         # we update the global "Best Model" variables to ensure we save the right threshold.
-        if val_f1_ATC > best_val_f1:
-            best_val_f1 = val_f1_ATC
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
             best_global_thr = threshold
     
         
@@ -233,19 +247,19 @@ def main():
         val_acc_best_thr = ((all_val_probs >= threshold).astype(int) == all_val_y_true.astype(int)).mean()
         #TensorBoard
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
-        tensor_board_writer.add_scalar("Val/Acc_ATC_best_thr", val_acc_best_thr, epoch)
-        tensor_board_writer.add_scalar("Val/F1_ATC", val_f1_ATC, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_best_thr", val_acc_best_thr, epoch)
+        tensor_board_writer.add_scalar("Val/F1", val_f1, epoch)
         tensor_board_writer.add_scalar("Val/Best_Threshold", threshold, epoch)
         tensor_board_writer.add_scalar("Val/Best_Global_Threshold", best_global_thr, epoch)
-        tensor_board_writer.add_scalar("Val/Precision_ATC", val_precision, epoch)
-        tensor_board_writer.add_scalar("Val/Recall_ATC", val_recall, epoch)
+        tensor_board_writer.add_scalar("Val/Precision", val_precision, epoch)
+        tensor_board_writer.add_scalar("Val/Recall", val_recall, epoch)
 
-        lr_scheduler.step(val_f1_ATC)
+        lr_scheduler.step(val_f1)
                             
         print(
             f"Epoch [{epoch+1}/{num_epochs}] "
-            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc_ATC:.4f} | Train F1: {train_f1_ATC:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val F1: {val_f1_ATC:.4f} | "
+            f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | Train F1: {train_f1:.4f} | "
+            f"Val Loss: {val_loss:.4f} | Val F1: {val_f1:.4f} | "
             f"BestThr: {threshold:.3f} | Val Acc best threshold: {val_acc_best_thr:.4f} "
             f"Val Precision: {val_precision} | Val Recall {val_recall} "
         )
@@ -256,7 +270,7 @@ def main():
         print(f"This is the LR: {current_lr}")
             
         #Early Stopping
-        early_stopping(val_f1_ATC.__float__(), trace_model)
+        early_stopping(val_f1.__float__(), trace_model)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
@@ -270,10 +284,23 @@ def main():
         "model_state_dict": trace_model.state_dict(),
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
-    }, "Model_TRACE_ATC_FinalVersion_SingleTask.pt")
+    }, f"Model_TRACE_{task_train}_FinalVersion_SingleTask.pt")
 
 
+"""
 
-        
+def mean_target_clicks_per_session(dataset):
+
+    clicks_per_session = []
+
+    for session in dataset.session:
+        _, target_part = dataset.__split_input_target__(session)
+
+        types = np.asarray(target_part["type"])
+        clicks = np.sum(types == 1)   # clicks SOLO del target
+        clicks_per_session.append(clicks)
+
+    return float(np.mean(clicks_per_session))
+""" 
 if __name__ == "__main__":
     main()
