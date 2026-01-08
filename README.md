@@ -17,6 +17,20 @@ The first step to run this project locally or on GPUHub is to install the requir
 ```bash
 pip install -r requirements.txt
 ```
+Dependencies:
+
+ - [NumPy](https://numpy.org/doc/stable/index.html): fundamental package for scientific computing in Python
+ 
+ - [Pandas](https://pandas.pydata.org/): fundamental package for source data analysis and manipulation tool
+ 
+ - [Pytorch](https://pytorch.org/): software-based open source deep learning framework used to build neural networks
+ 
+ - [Scikit-learn](https://scikit-learn.org/stable/): open-source machine learning library for Python
+
+ - [Seaborn](https://seaborn.pydata.org/): data visualization library based on matplotlib
+
+ - [matplotlib](): omprehensive library for creating static, animated, and interactive visualizations in Python
+
 
 ## Installation Dataset 
 The second step consists of downloading the dataset used in this investigation from the [OTTO RecSys Dataset](https://github.com/otto-de/recsys-dataset).
