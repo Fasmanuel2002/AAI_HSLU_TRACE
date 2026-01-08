@@ -121,10 +121,10 @@ def main():
     for epoch in range(num_epochs):
         
         #F1 Score training
-        all_train_y_true = []
-        all_train_y_pred = []
-        all_val_probs = []
-        all_val_y_true = []
+        train_y_true = []
+        train_y_pred = []
+        val_probs = []
+        val_y_true = []
             
         # -------------------------------TRAINING ---------------------------
         #Initializing the training variables
@@ -164,7 +164,7 @@ def main():
             epoch_loss += loss_training.item()
                 
             # ============(Prediction, calculation of Accuracy) ============
-            correct_train, total_train = update_binary_metrics(logits_train,target_train,correct_train,total_train,all_train_y_true,all_train_y_pred)
+            correct_train, total_train = update_binary_metrics(logits_train,target_train,correct_train,total_train,train_y_true,train_y_pred)
             
             
         #Training Loss and Accuracy 
@@ -172,9 +172,9 @@ def main():
         train_acc = correct_train / max(total_train, 1)
             
         #F1 Score for training
-        all_train_y_true = torch.cat(all_train_y_true).numpy().ravel()
-        all_train_y_pred = torch.cat(all_train_y_pred).numpy().ravel()
-        train_f1 = f1_score(all_train_y_true, all_train_y_pred, zero_division=0)
+        train_y_true = torch.cat(train_y_true).numpy().ravel()
+        train_y_pred = torch.cat(train_y_pred).numpy().ravel()
+        train_f1 = f1_score(train_y_true, train_y_pred, zero_division=0)
             
         #TensorBoard Writing
         tensor_board_writer.add_scalar("Train/F1", train_f1, epoch)
@@ -210,27 +210,27 @@ def main():
                 val_loss += loss_validation.item()
 
                 #Logits converted to sigmoid
-                append_probs_and_true(logits_val, target_val, all_val_probs, all_val_y_true)
+                append_probs_and_true(logits_val, target_val, val_probs, val_y_true)
     
         # ----Concatonate the Probabilities and true labels ----
-        all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
-        all_val_probs = torch.cat(all_val_probs).numpy().ravel()
+        val_y_true = torch.cat(val_y_true).numpy().ravel()
+        val_probs = torch.cat(val_probs).numpy().ravel()
     
         #Generate 99 possible threshold values from 0.1 to 0.99 (steps of 0.01).
         thresholds = np.linspace(0.01, 0.99, 99)
        
-        best_f1, best_thr = search_best_f1_thr(all_val_probs, all_val_y_true, thresholds)
+        best_f1, best_thr = search_best_f1_thr(val_probs, val_y_true, thresholds)
         
         #Looking for the Best F1 Score and threshold
         val_f1 = best_f1
         threshold = best_thr
         
         # Generate final predictions using the newly discovered optimal threshold
-        val_pred = (all_val_probs >= threshold).astype(int)
+        val_pred = (val_probs >= threshold).astype(int)
         
         # Calculate additional metrics Precision and Recall at this specific optimal threshold
-        val_precision = precision_score(all_val_y_true, val_pred, zero_division=0)
-        val_recall = recall_score(all_val_y_true, val_pred, zero_division=0)
+        val_precision = precision_score(val_y_true, val_pred, zero_division=0)
+        val_recall = recall_score(val_y_true, val_pred, zero_division=0)
         
         print(
             f"Thr={threshold:.3f} | "
@@ -251,7 +251,7 @@ def main():
         val_loss /= len(validation_loader)
         
         #calculates the optimized Accuracy based on the best threshold found
-        val_acc_best_thr = ((all_val_probs >= threshold).astype(int) == all_val_y_true.astype(int)).mean()
+        val_acc_best_thr = ((val_probs >= threshold).astype(int) == val_y_true.astype(int)).mean()
         
         #TensorBoard
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
