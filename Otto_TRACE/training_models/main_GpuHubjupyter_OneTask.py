@@ -216,12 +216,10 @@ def main():
         all_val_y_true = torch.cat(all_val_y_true).numpy().ravel()
         all_val_probs = torch.cat(all_val_probs).numpy().ravel()
     
-        #Generate 81 possible threshold values from 0.1 to 0.99 (steps of 0.01).
+        #Generate 99 possible threshold values from 0.1 to 0.99 (steps of 0.01).
         thresholds = np.linspace(0.01, 0.99, 99)
-        #Normal Threshold
        
         best_f1, best_thr = search_best_f1_thr(all_val_probs, all_val_y_true, thresholds)
-        
         
         #Looking for the Best F1 Score and threshold
         val_f1 = best_f1
@@ -230,9 +228,17 @@ def main():
         # Generate final predictions using the newly discovered optimal threshold
         val_pred = (all_val_probs >= threshold).astype(int)
         
-        # Calculate additional metrics (Precision and Recall) at this specific threshold
+        # Calculate additional metrics Precision and Recall at this specific optimal threshold
         val_precision = precision_score(all_val_y_true, val_pred, zero_division=0)
         val_recall = recall_score(all_val_y_true, val_pred, zero_division=0)
+        
+        print(
+            f"Thr={threshold:.3f} | "
+            f"P={val_precision:.3f} | "
+            f"R={val_recall:.3f} | "
+            f"F1={val_f1:.3f}"
+        )
+
         
         # If the F1 score of this epoch is the best seen so far across all epochs,
         # we update the global "Best Model" variables to ensure we save the right threshold.
@@ -243,8 +249,10 @@ def main():
         
         #Validation Loss
         val_loss /= len(validation_loader)
+        
         #calculates the optimized Accuracy based on the best threshold found
         val_acc_best_thr = ((all_val_probs >= threshold).astype(int) == all_val_y_true.astype(int)).mean()
+        
         #TensorBoard
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
         tensor_board_writer.add_scalar("Val/Acc_best_thr", val_acc_best_thr, epoch)
@@ -261,7 +269,6 @@ def main():
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | Train F1: {train_f1:.4f} | "
             f"Val Loss: {val_loss:.4f} | Val F1: {val_f1:.4f} | "
             f"BestThr: {threshold:.3f} | Val Acc best threshold: {val_acc_best_thr:.4f} "
-            f"Val Precision: {val_precision} | Val Recall {val_recall} "
         )
 
         #Print the Current Learning rate after the Lr
@@ -287,7 +294,7 @@ def main():
     }, f"Model_TRACE_{task_train}_FinalVersion_SingleTask.pt")
 
 
-"""
+
 
 def mean_target_clicks_per_session(dataset):
 
@@ -295,12 +302,17 @@ def mean_target_clicks_per_session(dataset):
 
     for session in dataset.session:
         _, target_part = dataset.__split_input_target__(session)
-
-        types = np.asarray(target_part["type"])
+        target_lenght = [len(t["timestamp"]) for t in target_part]
+        print(target_lenght)
+        
+        
+        """types = np.asarray(target_part["type"])
         clicks = np.sum(types == 1)   # clicks SOLO del target
         clicks_per_session.append(clicks)
 
-    return float(np.mean(clicks_per_session))
-""" 
+    return float(np.mean(clicks_per_session))"""
+    
+
+
 if __name__ == "__main__":
     main()
