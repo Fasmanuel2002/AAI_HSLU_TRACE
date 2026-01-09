@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 
 class OttoDataSetSession(Dataset):
     """
-    The first Dataset, before the TRACE Paper Cut Threshold of the Timestamps which in this case is 16 (THRESHOLD_TIMESTAMPS) 
+    The first Dataset, before the TRACE Paper Cut Threshold of the Timestamps which in this case is 32 (THRESHOLD_TIMESTAMPS) 
     It Transforms the click aids in numbers 
     """
     def __init__(self, file_name: str, min_timestamps_per_sample : int = 16, max_samples : Optional[int] = None):
@@ -23,7 +23,7 @@ class OttoDataSetSession(Dataset):
                 timestamps.append(single_event_click["ts"])
                 events_type.append(self.type_event_map[single_event_click["type"]])
                 
-            
+            #Filter out short sessions to increase the median sequence length and retain more informative user interactions.    
             if len(timestamps) < min_timestamps_per_sample:
                 continue
             
@@ -69,15 +69,16 @@ class OttoDataSetSession(Dataset):
     
 class TraceOttoDataset(OttoDataSetSession):
     """
-    TRACE dataset as a subclass
+    TRACE dataset subclass of OttoDataSession handling input/target splitting, 
+    sequence padding/truncation, and task definition for model prediction. 
     """
     def __init__(self, 
                 file_name : str,
                 input_seq_len : int,
                 min_timestamps_per_sample : int = 16,
                 max_samples : Optional[int] = None,
-                split_min : float = 0.80,
-                split_max : float = 0.90,
+                split_min : float = 0.65,
+                split_max : float = 0.75,
                 ):
         super().__init__(file_name, min_timestamps_per_sample, max_samples)
         
@@ -91,10 +92,10 @@ class TraceOttoDataset(OttoDataSetSession):
     def __getitem__(self, index) -> Tuple[Dict, Dict]:
         session = self.session[index]
         
-        #Split 
+        #Splitting -> input part and target part
         input_part, target_part = self.__split_input_target__(session)
         
-        #Padding input
+        #Padding input part
         input_part_padded = self.__pad_input_sequence__([input_part])[0]
 
         
@@ -108,13 +109,15 @@ class TraceOttoDataset(OttoDataSetSession):
         targets = {
             "ATC" : torch.tensor(self.__ATC_task_logit__(target_part), dtype=torch.int64),
             "SAT" : torch.tensor(self.__SAT__task_logit__(target_part), dtype=torch.int64),
-            "PD1" : torch.tensor(self.__PD1_task_logit___(input_part,target_part), dtype=torch.int64),
-            "RA1" : torch.tensor(self.__RA1_task_logit__(target_part), dtype=torch.int64)
+            "MAP" : torch.tensor(self.__MAP__task_logit__(target_part), dtype=torch.int64)
         }
         
         return inputs, targets
     
     def __pad_input_sequence__(self, input) -> List:
+        """
+        Truncate sessions longer than input_seq_len and pad shorter ones to ensure a fixed input sequence length.
+        """
         session_padded = []
         for session in input:
             if len(session["timestamps"]) >= self.input_seq_len:
@@ -129,6 +132,9 @@ class TraceOttoDataset(OttoDataSetSession):
         return session_padded
     
     def __split_input_target__(self, session : Dict) -> Tuple[Dict, Dict]:
+        """
+        Split input and target sequences following Section 2.1 of the TRACE paper to define model inputs and prediction targets.
+        """
         n_events = int(session["timestamps"].shape[0])
         cutting = self._split_range(self.split_min, self.split_max)
         input_size = int(n_events * cutting)
@@ -165,13 +171,17 @@ class TraceOttoDataset(OttoDataSetSession):
         return (count, itm)
         
     @staticmethod
-    def __padding__(input_seq_len : int , session : Dict) -> Dict:   
+    def __padding__(input_seq_len : int , session : Dict) -> Dict: 
+        """
+        Padding the input part of the dataset, as described in Section 2.2 of the TRACE paper.
+        This step is required to ensure that all input sessions have the same fixed length, since user sessions naturally vary in size.
+        """  
         padd_len = input_seq_len - len(session["timestamps"])
         zeros = np.zeros(padd_len, dtype=session["aid"].dtype)
         
-        aid_padded = np.concatenate((session["aid"], zeros))
-        timestamps_padded = np.concatenate((session["timestamps"], zeros))
-        type_padded = np.concatenate((session["type"], zeros))
+        aid_padded = np.concatenate((zeros, session["aid"]))
+        timestamps_padded = np.concatenate((zeros,session["timestamps"]))
+        type_padded = np.concatenate((zeros, session["type"]))
         return {
             "session_id":session["session_id"],
             "aid": aid_padded,
@@ -181,7 +191,7 @@ class TraceOttoDataset(OttoDataSetSession):
     
     
     """
-    Logits of the the model
+    Tasks of the the model
     """
     @staticmethod
     def __ATC_task_logit__(target_part : Dict) -> int:
@@ -192,79 +202,30 @@ class TraceOttoDataset(OttoDataSetSession):
         """
         types = np.asarray(target_part["type"])
         atc_counts = int(np.sum(types == 2))
-        return 1 if atc_counts >= 1 else 0
+        return 1 if atc_counts >= 2 else 0
     
     @staticmethod
     def __SAT__task_logit__(target_part : Dict) -> int:
         """
         SAT (Repeated item views):
             1 if the user views the same article identifier (AID) at least
-            3 times within a session, indicating strong browsing interest.
+            4 times within a session, indicating strong browsing interest.
         """
         aids = target_part["aid"]
         if len(aids) == 0:
             return 0
         count, _ = TraceOttoDataset._most_frequent(aids) 
-        return 1 if count >= 3 else 0
+        return 1 if count >= 4 else 0
     
-    @staticmethod
-    def __PD1_task_logit___(input_part : Dict ,target_part : Dict) -> int:
+    
+    @staticmethod 
+    def __MAP__task_logit__(target_part : Dict) -> int:
         """
-        PD1 (Purchase within 1 day):
-            1 if the user completes a purchase within one day after the
-            last observed event in the session, 0 otherwise.
+        MAP (Make a purchase in the Session)
+            1 if the user purchase a article at least
+            1 time within a session, 0 otherwise
         """
-        OneDay = 86400 * 1000  
-    
-        if len(target_part["timestamps"]) == 0:
-            return 0
-    
-        real_input_ts = [ts for ts in input_part["timestamps"] if ts > 0]
-        if not real_input_ts:
-            return 0
-        last_input_ts = real_input_ts[-1]
-    
-        purchase_ts = [
-            ts for ts, t in zip(target_part["timestamps"], target_part["type"])
-            if t == 3
-        ]
-        purchase_ts = np.asarray(purchase_ts)
-
-        diff = purchase_ts - last_input_ts
-        return int(np.any((0 < diff) & (diff <= OneDay)))
-
-
-    
-    @staticmethod
-    def __RA1_task_logit__(target_part: Dict) -> int:
-        """
-        RA1 (Return to item within 1 day):
-            1 if the first AID appears again within the next one-day window
-            inside the sequence, 0 otherwise.
-        """
-        ONE_DAY = 86400 * 1000
-
-        aids = np.asarray(target_part["aid"])
-        ts   = np.asarray(target_part["timestamps"])
-
-        valid = ts > 0
-        aids, ts = aids[valid], ts[valid]
-
-        if aids.size < 2:
-            return 0
-
-        first_aid = aids[0]
-        first_ts  = ts[0]
-
-        ts_same = ts[aids == first_aid]
-        if ts_same.size < 2:
-            return 0
-
-        diff = ts_same[1:] - first_ts
-        return int(np.any((0 < diff) & (diff <= ONE_DAY)))
-            
-           
-
-    
-
+        types = np.asarray(target_part["type"])
+        map_counts = int(np.sum(types == 3))
+        return 1 if map_counts >= 1 else 0
     
