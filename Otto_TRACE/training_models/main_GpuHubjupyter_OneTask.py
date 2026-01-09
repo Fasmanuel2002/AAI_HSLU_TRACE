@@ -219,11 +219,13 @@ def main():
         #Generate 99 possible threshold values from 0.1 to 0.99 (steps of 0.01).
         thresholds = np.linspace(0.01, 0.99, 99)
        
-        best_f1, best_thr = search_best_f1_thr(val_probs, val_y_true, thresholds)
+        best_f1,macro_f1, best_thr = search_best_f1_thr(val_probs, val_y_true, thresholds)
         
         #Looking for the Best F1 Score and threshold
         val_f1 = best_f1
+        val_macro_f1 = macro_f1
         threshold = best_thr
+        
         
         # Generate final predictions using the newly discovered optimal threshold
         val_pred = (val_probs >= threshold).astype(int)
@@ -237,6 +239,7 @@ def main():
             f"P={val_precision:.3f} | "
             f"R={val_recall:.3f} | "
             f"F1={val_f1:.3f}"
+            f"Macro F1={val_macro_f1:.3f}"
         )
 
         

@@ -20,12 +20,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def main():
     
     print("Beginning")
-        #DataSet    
+    #DataSet    
     dataset_processed = TraceOttoDataset(
         file_name='train.jsonl',
         input_seq_len=64,
-        min_timestamps_per_sample=16,
-        max_samples=5000
+        min_timestamps_per_sample=32,
     )
     train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed, batch_size=128)
     
@@ -44,7 +43,7 @@ def main():
         num_embeddings_aid=num_embeddings_aid,
         num_embeddings_event_type=num_embeddings_event_type,
         embedding_dim=32,
-        num_classes=2
+        num_classes=3
     )  
       
 
@@ -62,7 +61,7 @@ def main():
                                    path=f"Model_TRACE_checkpoint_ATC_task.pt")
     
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/MLT_task_ATC_SAT/")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/MLT_task_ATC_SAT_MAP/")
     
     
 
@@ -70,17 +69,24 @@ def main():
     print("Started the Training")
     labels_list_ATC = []
     labels_list_SAT = []
+    labels_list_MAP = []
     for inputs, targets in train_loader:
         labels_list_ATC.append(targets["ATC"].view(-1)) #(Batch, )
         labels_list_SAT.append(targets["SAT"].view(-1)) #(Batch, )
+        labels_list_MAP.append(targets["MAP"].view(-1)) # (Batch, )
+        
     labels_ATC = torch.cat(labels_list_ATC, dim=0)
     labels_SAT = torch.cat(labels_list_SAT, dim=0)
+    labels_MAP = torch.cat(labels_list_MAP,dim=0)
     
     num_pos_ATC = (labels_ATC == 1).sum().item()
     num_neg_ATC = (labels_ATC == 0).sum().item()
     
     num_pos_SAT = (labels_SAT == 1).sum().item()
     num_neg_SAT = (labels_SAT == 0).sum().item()
+    
+    num_pos_MAP = (labels_MAP == 1).sum().item()
+    num_neg_MAP = (labels_MAP == 0).sum().item()
     
     
     ratio_ATC = num_neg_ATC / max(num_pos_ATC, 1)
@@ -89,18 +95,25 @@ def main():
     
     ratio_SAT = num_neg_SAT / max(num_pos_SAT, 1)
     ratio_SAT = min(ratio_SAT, 30.0)
+    
+    ratio_MAP = num_neg_MAP / max(num_pos_MAP, 1)
+    ratio_MAP = min(ratio_MAP, 30.0)
+    
     print("ATC Train pos/neg:", num_pos_ATC, num_neg_ATC)
     print("SAT Train pos/neg:", num_pos_SAT, num_neg_SAT)
+    print("MAP Train pos/neg:", num_pos_MAP, num_neg_MAP)
     
     w_pos_ATC = torch.tensor([ratio_ATC], device=device).float()
     w_pos_SAT = torch.tensor([ratio_SAT], device=device).float()
+    w_pos_MAP = torch.tensor([ratio_MAP], device=device).float()
+    
     w_neg = torch.tensor([1.0], device=device).float()
     criterion_validation = nn.BCEWithLogitsLoss()
     
     num_epochs = 40
 
     best_val_f1 = -1.0
-    best_global_thr = {"ATC": 0.5, "SAT": 0.5}
+    best_global_thr = {"ATC": 0.5, "SAT": 0.5, "MAP": 0.5}
 
     for epoch in range(num_epochs):
         #F1 Score for Training ATC
@@ -110,7 +123,10 @@ def main():
         #F1 Score training for SAT
         train_y_true_SAT = []
         train_y_pred_SAT = []
-            
+        
+        #F1 Score for Training MAP
+        train_y_true_MAP = []
+        train_y_pred_MAP = []
             
         
         # -------------------------------TRAINING ---------------------------
@@ -119,9 +135,11 @@ def main():
 
         correct_train_ATC = 0
         correct_train_SAT = 0
+        correct_train_MAP = 0
 
         total_train_ATC = 0
         total_train_SAT = 0
+        total_train_MAP = 0
     
 
         for inputs_train, targets_train in train_loader:
@@ -129,9 +147,8 @@ def main():
            
             target_train_ATC = targets_train["ATC"].unsqueeze(1).to(device).float()
             target_train_SAT = targets_train["SAT"].unsqueeze(1).to(device).float()
-            """target_train_PD1 = targets_train["PD1"].unsqueeze(1).to(device)
-            target_train_RA1 = targets_train["RA1"].unsqueeze(1).to(device)
-            """
+            target_train_MAP = targets_train["MAP"].unsqueeze(1).to(device).float()
+            
    
             inputs_train = {
                 k: v.to(device)
@@ -141,26 +158,28 @@ def main():
             delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device).float()
             delta_between = get_between_features(inputs_train["timestamps"]).to(device).float()
 
-            logits_val = trace_model(
+            logits_train = trace_model(
                 inputs_train["aid"],
                 inputs_train["type"],
                 delta_elapsed,
                 delta_between
             )
 
-            pred_ATC = logits_val[:, 0:1] #ATC
-            pred_SAT = logits_val[:, 1:2] #SAT
-            #pred_PD1 = logits_val[:, 2:3] #PD1
-            #pred_RA1 = logits_val[:, 3:4] #RA1
+            pred_ATC = logits_train[:, 0:1] #ATC
+            pred_SAT = logits_train[:, 1:2] #SAT
+            pred_MAP = logits_train[:, 2:3] #MAP
+            
             
             weights_ATC = torch.where(target_train_ATC == 1.0, w_pos_ATC, w_neg)
             weights_SAT = torch.where(target_train_SAT == 1.0, w_pos_SAT, w_neg)
+            weights_MAP = torch.where(target_train_MAP == 1.0, w_pos_MAP, w_neg)
 
             loss_ATC = F.binary_cross_entropy_with_logits(pred_ATC, target_train_ATC, weight=weights_ATC)
             loss_SAT = F.binary_cross_entropy_with_logits(pred_SAT, target_train_SAT, weight=weights_SAT)
+            loss_MAP = F.binary_cross_entropy_with_logits(pred_MAP, target_train_MAP, weight=weights_MAP)
             optimizer.zero_grad()
             
-            loss_training = (loss_ATC + loss_SAT) #+ loss_PD1 + loss_RA1
+            loss_training = (loss_ATC + loss_SAT + loss_MAP) 
             
             loss_training.backward()
             
@@ -172,17 +191,16 @@ def main():
             correct_train_ATC, total_train_ATC = update_binary_metrics(pred_ATC,target_train_ATC,correct_train_ATC,total_train_ATC,train_y_true_ATC,train_y_pred_ATC)
             # ============ SAT ============
             correct_train_SAT, total_train_SAT = update_binary_metrics(pred_SAT, target_train_SAT, correct_train_SAT, total_train_SAT, train_y_true_SAT, train_y_pred_SAT)
-        
-    
+            # ============ MAP ===========
+            correct_train_MAP, total_train_MAP = update_binary_metrics(pred_MAP, target_train_MAP, correct_train_MAP, total_train_MAP, train_y_true_MAP,train_y_pred_MAP)
             
             
         train_loss = epoch_loss / len(train_loader)
 
         train_acc_ATC = correct_train_ATC / max(total_train_ATC, 1)
         train_acc_SAT = correct_train_SAT / max(total_train_SAT, 1)
-        """train_acc_PD1 = correct_train_PD1 / max(total_train_PD1, 1)
-        train_acc_RA1 = correct_train_RA1 / max(total_train_RA1, 1)
-        """
+        train_acc_MAP = correct_train_MAP / max(total_train_MAP, 1)
+        
         
         #F1 Score for training ATC
         train_y_true_ATC = torch.cat(train_y_true_ATC).numpy().ravel()
@@ -190,31 +208,39 @@ def main():
         train_f1_ATC = f1_score(train_y_true_ATC, train_y_pred_ATC, zero_division=0)
         
         
-        #F1 Score for training ATC
+        #F1 Score for training SAT
         train_y_true_SAT = torch.cat(train_y_true_SAT).numpy().ravel()
         train_y_pred_SAT = torch.cat(train_y_pred_SAT).numpy().ravel()
         train_f1_SAT = f1_score(train_y_true_SAT, train_y_pred_SAT, zero_division=0)
+        
+        #F1 Score for training MAP
+        train_y_true_MAP = torch.cat(train_y_true_MAP).numpy().ravel()
+        train_y_pred_MAP = torch.cat(train_y_pred_MAP).numpy().ravel()
+        train_f1_MAP = f1_score(train_y_true_MAP, train_y_pred_MAP, zero_division=0)
         
         #TensorBoard Writing
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
         tensor_board_writer.add_scalar("Train/Acc_ATC", train_acc_ATC, epoch)
         tensor_board_writer.add_scalar("Train/Acc_SAT", train_acc_SAT, epoch)
+        tensor_board_writer.add_scalar("Train/Acc_MAP", train_acc_MAP, epoch)
         tensor_board_writer.add_scalar("Train/F1_ATC", train_f1_ATC, epoch)
         tensor_board_writer.add_scalar("Train/F1_SAT", train_f1_SAT, epoch)
-        #tensor_board_writer.add_scalar("Train/Acc_PD1", train_acc_PD1, epoch)
-        #tensor_board_writer.add_scalar("Train/Acc_RA1", train_acc_RA1, epoch)
+        tensor_board_writer.add_scalar("Train/F1_MAP", train_f1_MAP, epoch)
+        
 
         # -------------------------------VALIDATION---------------------------
         trace_model.eval()
         val_loss = 0.0
         val_probs_ATC, val_true_ATC = [], []
         val_probs_SAT, val_true_SAT = [], []
+        val_probs_MAP, val_true_MAP = [], []
 
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
 
                 target_val_ATC = targets_val["ATC"].unsqueeze(1).to(device).float()
                 target_val_SAT = targets_val["SAT"].unsqueeze(1).to(device).float()
+                target_val_MAP = targets_val["MAP"].unsqueeze(1).to(device).float()
         
                 inputs_val = {
                     k: v.to(device)
@@ -232,17 +258,20 @@ def main():
 
                 logits_ATC_val = logits_val[:, 0:1]
                 logits_SAT_val = logits_val[:, 1:2]
+                logits_MAP_val = logits_val[:, 2:3]
             
                 
                 loss_ATC_val = criterion_validation(logits_ATC_val, target_val_ATC)
                 loss_SAT_val = criterion_validation(logits_SAT_val, target_val_SAT)
+                loss_MAP_val = criterion_validation(logits_MAP_val, target_val_MAP)
             
                 
-                loss_validation = loss_ATC_val + loss_SAT_val
+                loss_validation = (loss_ATC_val + loss_SAT_val + loss_MAP_val)
                 val_loss += loss_validation.item()
 
                 append_probs_and_true(logits_ATC_val, target_val_ATC, val_probs_ATC, val_true_ATC)
                 append_probs_and_true(logits_SAT_val, target_val_SAT, val_probs_SAT, val_true_SAT)
+                append_probs_and_true(logits_MAP_val, target_val_MAP, val_probs_MAP, val_true_MAP)
          
          
          
@@ -251,26 +280,38 @@ def main():
 
         val_probs_SAT = torch.cat(val_probs_SAT).numpy().ravel()
         val_true_SAT  = torch.cat(val_true_SAT).numpy().ravel()
+        
+        val_probs_MAP = torch.cat(val_probs_MAP).numpy().ravel()
+        val_true_MAP  = torch.cat(val_true_MAP).numpy().ravel()
 
         
         thresholds = np.linspace(0.01,0.99, 99)
         
-        best_f1_ATC, best_thr_ATC = search_best_f1_thr(val_probs_ATC, val_true_ATC, thresholds)
+        best_f1_ATC, best_macro_f1_ATC, best_thr_ATC = search_best_f1_thr(val_probs_ATC, val_true_ATC, thresholds)
         
-        best_f1_SAT, best_thr_SAT = search_best_f1_thr(val_probs_SAT, val_true_SAT, thresholds)
+        best_f1_SAT, best_macro_f1_SAT, best_thr_SAT = search_best_f1_thr(val_probs_SAT, val_true_SAT, thresholds)
+        
+        best_f1_MAP, best_macro_f1_MAP, best_thr_MAP = search_best_f1_thr(val_probs_MAP, val_true_MAP, thresholds)
         
             
         val_f1_ATC = best_f1_ATC
+        val_macro_f1_ATC = best_macro_f1_ATC
         threshold_ATC = best_thr_ATC
         
         val_f1_SAT = best_f1_SAT
+        val_macro_f1_SAT = best_macro_f1_SAT
         threshold_SAT = best_thr_SAT
-                        
-        val_f1_mean = 0.5 * (val_f1_ATC + val_f1_SAT)
+        
+        val_f1_MAP =  best_f1_MAP
+        val_macro_f1_MAP = best_macro_f1_MAP
+        threshold_MAP = best_thr_MAP
+        
+        val_f1_mean = (val_f1_ATC + val_f1_SAT + val_f1_MAP) / 3
+        val_macro_f1_mean = (val_macro_f1_ATC + val_macro_f1_SAT + val_macro_f1_MAP) / 3
 
         if val_f1_mean > best_val_f1:
             best_val_f1 = val_f1_mean
-            best_global_thr = {"ATC": threshold_ATC, "SAT": threshold_SAT}
+            best_global_thr = {"ATC": threshold_ATC, "SAT": threshold_SAT, "MAP": threshold_MAP}
 
         
         
@@ -278,25 +319,27 @@ def main():
         val_loss /= len(validation_loader)
         val_acc_best_thr_ATC = ((val_probs_ATC >= threshold_ATC).astype(int) == val_true_ATC.astype(int)).mean()
         val_acc_best_thr_SAT = ((val_probs_SAT >= threshold_SAT).astype(int) == val_true_SAT.astype(int)).mean()
+        val_acc_best_thr_MAP = ((val_probs_MAP >= threshold_MAP).astype(int) == val_true_MAP.astype(int)).mean()
 
         
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
         tensor_board_writer.add_scalar("Val/ATC_F1", val_f1_ATC, epoch)
         tensor_board_writer.add_scalar("Val/SAT_F1", val_f1_SAT, epoch)
+        tensor_board_writer.add_scalar("Val/MAP_F1", val_f1_MAP, epoch)
        
         tensor_board_writer.add_scalar("Val/Acc_ATC_best_thr", val_acc_best_thr_ATC, epoch)
-        tensor_board_writer.add_scalar("Val/Acc_sat_best_thr", val_acc_best_thr_SAT, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_SAT_best_thr", val_acc_best_thr_SAT, epoch)
+        tensor_board_writer.add_scalar("Val/Acc_MAP_best_thr", val_acc_best_thr_MAP, epoch)
+        
         tensor_board_writer.add_scalar("Val/f1_mean", val_f1_mean, epoch)
 
-        #tensor_board_writer.add_scalar("Val/Acc_SAT", val_acc_SAT, epoch)
-        #tensor_board_writer.add_scalar("Val/Acc_PD1", val_acc_PD1, epoch)
-        #tensor_board_writer.add_scalar("Val/Acc_RA1", val_acc_RA1, epoch)
-        
         lr_scheduler.step(val_f1_mean)
         print(f"Epoch [{epoch+1}/{num_epochs}] | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
-        print(f"Train Acc ATC : {train_acc_ATC:.4f} | Train F1 ATC: {train_f1_ATC:.4f} | Val F1 ATC: {val_f1_ATC:.4f} | ")
-        print(f"Train Acc SAT : {train_acc_SAT:.4f} | Train F1 SAT: {train_f1_SAT:.4f} | Val F1 SAT: {val_f1_SAT:.4f} | ")
-        print(f"Val F1 mean: {val_f1_mean:.4f} | Thr: {threshold_ATC:.2f}/{threshold_SAT:.2f}")
+        print(f"Train Acc ATC : {train_acc_ATC:.4f} | Train F1 ATC: {train_f1_ATC:.4f} | Val F1 ATC: {val_f1_ATC:.4f} | Val Macro F1 ATC {val_macro_f1_ATC} ")
+        print(f"Train Acc SAT : {train_acc_SAT:.4f} | Train F1 SAT: {train_f1_SAT:.4f} | Val F1 SAT: {val_f1_SAT:.4f} | Val Macro F1 SAT {val_macro_f1_SAT} ")
+        print(f"Train Acc MAP : {train_acc_MAP:.4f} | Train F1 MAP: {train_f1_MAP:.4f} | Val F1 MAP: {val_f1_MAP:.4f} | Val Macro F1 MAP {val_macro_f1_MAP} ")
+        print(f"Val F1 mean: {val_f1_mean:.4f}  | Val Macro F1: {val_macro_f1_mean:.4f}| Thr: ATC: {threshold_ATC:.2f}/SAT:{threshold_SAT:.2f} MAP:{threshold_MAP:.2f}/")
+        
         #Print the Current Learning rate after the Lr
         current_lr = optimizer.param_groups[0]["lr"]
         tensor_board_writer.add_scalar("LR", current_lr, epoch)
@@ -317,7 +360,7 @@ def main():
         "model_state_dict": trace_model.state_dict(),
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
-    }, "Model_TRACE_MLT_ATC_SAT_FinalVersion_SingleTask.pt")
+    }, "Model_TRACE_MLT_ATC_SAT_MLP_FinalVersion_SingleTask.pt")
 
 
 
