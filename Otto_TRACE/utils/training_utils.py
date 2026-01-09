@@ -29,9 +29,11 @@ def update_binary_metrics(
     total_predictions : int,
     y_true_list : list,
     y_pred_list : list,
-    threshold : float = 0.5
-    ) -> Tuple[int,int]:
-    
+    threshold : float = 0.5) -> Tuple[int,int]:
+    """
+    Convert logits to binary predictions, update accuracy counters, and store
+    true/predicted labels for later metric computation.
+    """
     probs = torch.sigmoid(logit)
     preds = (probs >= threshold).float()
     
@@ -48,8 +50,7 @@ def append_probs_and_true(
     logits: torch.Tensor,
     targets: torch.Tensor,
     probs_list: List[torch.Tensor],
-    true_list: List[torch.Tensor],
-) -> None:
+    true_list: List[torch.Tensor]) -> None:
     """
     Appends sigmoid probabilities and targets (both moved to CPU) to lists.
     logits/targets expected shape: (B, 1) for binary task.

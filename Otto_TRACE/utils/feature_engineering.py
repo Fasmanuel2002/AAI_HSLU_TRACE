@@ -3,8 +3,9 @@ from utils.normalization import normalize_features
 
 def get_elapsed_feature(timestamps: torch.Tensor) -> torch.Tensor:
     """
-    Feature Engineer Trace Paper Part 2.2
-    Taking the time difference between the last timestamp of the session minus the first timestamp of the session
+    Feature engineering following Section 2.2 of the TRACE paper.
+    Computes the total session duration as the difference between the
+    last and first timestamps of the session.
     """
     #Adding a mask to remove the 0s from the padding of Sequence Length, necessary for the mean
     valid_mask = timestamps != 0
@@ -26,9 +27,11 @@ def get_elapsed_feature(timestamps: torch.Tensor) -> torch.Tensor:
     
 def get_between_features(timestamps: torch.Tensor) -> torch.Tensor:
     """
-    Feature Engineer Trace Paper Part 2.2
-    Taking the time difference between timestamp[i-1] and timestamp[i] for the session
+    Feature engineering following Section 2.2 of the TRACE paper.
+    Computes the time difference between consecutive events in a session
+    (i.e., timestamp[i] − timestamp[i−1]).
     """
+
     delta_between = timestamps[:, 1:] - timestamps[:, :-1]
 
     #Adding a mask to remove the 0s from the padding of Sequence Length, necessary for the mean

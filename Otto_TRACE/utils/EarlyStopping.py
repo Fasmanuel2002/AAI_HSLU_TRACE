@@ -2,7 +2,7 @@ import torch
 
 class EarlyStopping:
     def __init__(self,
-                    patience: int = 5, #How many consecutive periods can they go without improvement before stopping training 
+                    patience: int = 7, #How many consecutive periods can they go without improvement before stopping training 
                     min_delta: float = 0.0, #The minimum improvement we require to say "this is an improvement".
                     mode : str = "min", #val_loss, 
                     restore_best_weights : bool = True, #Save the best model in the run
@@ -28,12 +28,17 @@ class EarlyStopping:
 
     def __call__(self, metric_model : float, trace_model):
             if self.best_score is None:
+                
                 self.best_score = metric_model
+                
                 self.save_checkpoint(metric_model, trace_model)
+                
                 return
             if self.compare(metric_model, self.best_score):
                 self.best_score = metric_model
+                
                 self.counter = 0
+                
                 self.save_checkpoint(metric_model, trace_model)
             
             else:
@@ -45,11 +50,19 @@ class EarlyStopping:
                     self.early_stop = True
                     
     def save_checkpoint(self, metric_model, trace_model):
+        """
+        Save the best model checkpoint.
+        This is necessary to preserve training progress in case the GPUHub session expires.
+        """
+        
         if self.verbose == True:
             print(f"New best metric for trace model {metric_model:.4f} -> New model") 
         torch.save(trace_model.state_dict(), self.path)
     
     
     def load_best_weights(self, model):
+        """
+        Loads the best model checkpoint
+        """
         if self.restore_best_weights:
             model.load_state_dict(torch.load(self.path))

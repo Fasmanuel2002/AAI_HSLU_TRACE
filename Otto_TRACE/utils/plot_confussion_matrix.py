@@ -5,8 +5,7 @@ from typing import List
 def plot_confusion_matrix(
     cm,
     name_task: str,
-    name_classes: List[str]
-):
+    name_classes: List[str]):
     """
     Binary confusion matrix for task prediction (0 / 1).
     """

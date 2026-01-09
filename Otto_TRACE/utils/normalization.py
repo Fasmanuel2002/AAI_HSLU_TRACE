@@ -1,13 +1,19 @@
 import torch
 from typing import Optional
 
-def normalize_features(features: torch.Tensor,feature_mask: Optional[torch.Tensor] = None,eps: float = 1e-6) -> torch.Tensor:
+def normalize_features(features: torch.Tensor, 
+                       feature_mask: Optional[torch.Tensor] = None,
+                       eps: float = 1e-6) -> torch.Tensor:
+    """
+    Normalize input timestamps as described in Section 2.2 (Feature Engineering) of the TRACE paper.
+    A feature mask is applied to exclude padded values, since padding introduces zeros that would
+    otherwise distort the mean and variance during normalization.
+    """
     
+    #If there is not any zero do the normal normalization
     if feature_mask is None:
         return (features - features.mean()) / (features.std() + eps)
-
-
-
+    
     mask_bool = feature_mask.bool()
     
     mask_float = mask_bool.float()
