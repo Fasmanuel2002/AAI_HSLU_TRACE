@@ -299,22 +299,7 @@ def main():
 
 
 
-def mean_target_clicks_per_session(dataset):
 
-    clicks_per_session = []
-
-    for session in dataset.session:
-        _, target_part = dataset.__split_input_target__(session)
-        target_lenght = [len(t["timestamp"]) for t in target_part]
-        print(target_lenght)
-        
-        
-        """types = np.asarray(target_part["type"])
-        clicks = np.sum(types == 1)   # clicks SOLO del target
-        clicks_per_session.append(clicks)
-
-    return float(np.mean(clicks_per_session))"""
-    
 
 
 if __name__ == "__main__":
