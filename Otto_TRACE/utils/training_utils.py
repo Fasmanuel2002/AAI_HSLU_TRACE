@@ -1,6 +1,8 @@
 from sklearn.metrics import f1_score
 from typing import Tuple, List
 import torch
+from torch.utils.data import DataLoader
+from torch import Tensor
 
 def search_best_f1_thr(val_probs, val_true, thresholds) -> Tuple[float, float, float]: 
     """
@@ -53,8 +55,88 @@ def append_probs_and_true(
     true_list: List[torch.Tensor]) -> None:
     """
     Appends sigmoid probabilities and targets (both moved to CPU) to lists.
-    logits/targets expected shape: (B, 1) for binary task.
+    logits/targets expected shape: (B, 1) for binary task. 
     """
     probs = torch.sigmoid(logits)
     probs_list.append(probs.detach().cpu())
     true_list.append(targets.detach().cpu())
+    
+    
+def compute_f1_tasks(
+y_true_batches: List[torch.Tensor],
+    y_pred_batches: List[torch.Tensor],
+    zero_division: int = 0
+) -> float:
+    """
+    Concatenates batch-level tensors and computes F1 score.
+    """
+    y_true = torch.cat(y_true_batches).detach().cpu().numpy().ravel()
+    y_pred = torch.cat(y_pred_batches).detach().cpu().numpy().ravel()
+    return float(f1_score(y_true, y_pred, zero_division=zero_division))
+
+
+
+def ratio_finder_single_task(train_loader : DataLoader, task_train : str , device) -> Tuple[Tensor, Tensor]:
+    labels_list = []
+    for _, targets in train_loader:
+        labels_list.append(targets[task_train].view(-1)) #(Batch, )
+        
+    labels = torch.cat(labels_list, dim=0) #(N, )           
+    
+    #Number of positives in the train_loader
+    num_pos = (labels == 1).sum().item()
+    
+    #Number of Negatives in the train_loader
+    num_neg = (labels == 0).sum().item()
+    
+    ratio = num_neg / max(num_pos, 1)
+
+    print("Train pos/neg:", num_pos, num_neg)
+
+    w_pos = torch.tensor([ratio], device=device).float() 
+    
+    w_neg = torch.tensor([1.0], device=device).float()
+    
+    return (w_pos, w_neg)
+
+
+def ratios_finder_multi_task(train_loader : DataLoader, device) -> Tuple[Tensor, Tensor, Tensor]: 
+    labels_list_ATC = []
+    labels_list_SAT = []
+    labels_list_MAP = []
+    
+    for inputs, targets in train_loader:
+        labels_list_ATC.append(targets["ATC"].view(-1)) #(Batch, )
+        labels_list_SAT.append(targets["SAT"].view(-1)) #(Batch, )
+        labels_list_MAP.append(targets["MAP"].view(-1)) # (Batch, )
+        
+    labels_ATC = torch.cat(labels_list_ATC, dim=0)
+    labels_SAT = torch.cat(labels_list_SAT, dim=0)
+    labels_MAP = torch.cat(labels_list_MAP,dim=0)
+    
+    num_pos_ATC = (labels_ATC == 1).sum().item()
+    num_neg_ATC = (labels_ATC == 0).sum().item()
+    
+    num_pos_SAT = (labels_SAT == 1).sum().item()
+    num_neg_SAT = (labels_SAT == 0).sum().item()
+    
+    num_pos_MAP = (labels_MAP == 1).sum().item()
+    num_neg_MAP = (labels_MAP == 0).sum().item()
+    
+    
+    ratio_ATC = num_neg_ATC / max(num_pos_ATC, 1)
+    
+    ratio_SAT = num_neg_SAT / max(num_pos_SAT, 1)
+    
+    ratio_MAP = num_neg_MAP / max(num_pos_MAP, 1)
+    
+        
+    print("ATC Train pos/neg:", num_pos_ATC, num_neg_ATC)
+    print("SAT Train pos/neg:", num_pos_SAT, num_neg_SAT)
+    print("MAP Train pos/neg:", num_pos_MAP, num_neg_MAP)
+    
+    w_pos_ATC = torch.tensor([ratio_ATC], device=device).float()
+    w_pos_SAT = torch.tensor([ratio_SAT], device=device).float()
+    w_pos_MAP = torch.tensor([ratio_MAP], device=device).float()
+    
+    return (w_pos_ATC, w_pos_SAT, w_pos_MAP)
