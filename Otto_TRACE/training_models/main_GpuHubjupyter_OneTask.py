@@ -12,12 +12,26 @@ from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
 import torch.nn.functional as F
 from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true
+import argparse
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+
 def main():
     print("Beginning")
+    parser_terminal = argparse.ArgumentParser(description="Train TRACE model for specific task")
+    
+    parser_terminal.add_argument("--task", 
+                                 type=str, 
+                                 default="ATC",
+                                 choices=["ATC", "SAT", "MAP"],
+                                 help="Task to train: ATC, SAT, MAP")
+    
+    args = parser_terminal.parse_args()
+    task_train = args.task.upper()
+    print(f"\nTraining task selected: {task_train}")
+    
     #DataSet    
     dataset_processed = TraceOttoDataset(
         file_name='train.jsonl',
@@ -25,22 +39,9 @@ def main():
         min_timestamps_per_sample=16,
         max_samples=100000
     )
-    print(dataset_processed.__getitem__(2))
-    
-    print("\n\nWhat task you want to train")
-    print("ATC (Add-to-Cart frequency)")
-    print("SAT (Repeated item views) ")
-    print("PD1 (Purchase within 1 day) ")
-    print("RA1 (Return to item within 1 day)")
-    
-    task_train = input("Please choose: ").strip().upper()
-
-    if task_train not in {"ATC", "SAT", "PD1", "RA1"}:
-        raise ValueError(f"Invalid task '{task_train}'. Choose ATC, SAT, PD1 or RA1.")
-
 
     #Split the Data into Training_loader, Validation_loader and test_loaders
-    train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed, batch_size=128)
+    train_loader, validation_loader, _ = split_data_Train_Val_Test(dataset_processed, batch_size=128)
     
     #calling the max aid and type for combating the Out of Range Error -> Learning Embeddings
     max_aid = max(
@@ -63,7 +64,9 @@ def main():
     )  
     
     trace_model = trace_model.to(device)
+    
     optimizer = optim.AdamW(trace_model.parameters(), lr=1e-4, weight_decay=1e-4)
+    
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
                                                         cooldown=1,
                                                         mode="max",
