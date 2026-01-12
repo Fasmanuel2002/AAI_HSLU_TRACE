@@ -1,11 +1,10 @@
 from sklearn.metrics import f1_score
 from typing import Tuple, List
-
 import torch
 from torch.utils.data import DataLoader
 from torch import Tensor
-from Otto_TRACE.model.trace import TRACE
-from Otto_TRACE.dataset.otto_final import TraceOttoDataset
+from model.trace import TRACE
+from dataset.otto_final import TraceOttoDataset
 from torch import device as torch_device
 
 def search_best_f1_thr(val_probs, val_true, thresholds) -> Tuple[float, float, float]: 
