@@ -1,4 +1,5 @@
 ### A PyTorch re-implementation of the [TRACE](https://arxiv.org/abs/2409.12972) paper, developed in collaboration with the university.
+ 
  <p align="center">
  <img width="700" height="627" alt="image" src="https://github.com/user-attachments/assets/340938a8-5ae1-44e3-824c-cf1d6e68f679" />
  </p>
@@ -29,7 +30,9 @@ Dependencies:
 
  - [Seaborn](https://seaborn.pydata.org/): data visualization library based on matplotlib
 
- - [matplotlib](): omprehensive library for creating static, animated, and interactive visualizations in Python
+ - [matplotlib](https://matplotlib.org/): Comprehensive library for creating static, animated, and interactive visualizations in Python
+ 
+ - [tensorboard](https://www.tensorflow.org/tensorboard): Part of the TensorFlow Framework that provides tracking and visualizing of the metrics 
 
 
 ## Installation Dataset 
@@ -47,21 +50,22 @@ Download the `train.jsonl` file, which contains approximately **11 GB** of train
   
 - `Otto_TRACE/model/`
   
-  This section presents the re-implementation of the TRACE model architecture, as described in Section 2.3 of the original TRACE paper, adapted for this research investigation
+  This section presents the re-implementation of the TRACE model architecture, as described in Section 2.3 (Model Architecture) of the original TRACE paper, adapted for this research investigation
+  
 - `Otto_TRACE/training_models/`
   
-  Contains the two versions of training pipeline for Singular Task Learning and Multi Task Learning, the purpose of this code format is for GPUHub.
+  Contains the two versions of training pipeline for Singular-Task Learning (STL) and Multi-Task Learning (MLT), the purpose of this code format is for jupyterhub GPU.
 
 - `Otto_TRACE/test_models/`
   
-  Contains the two versions of Testing Pipeline for Singular Task Learning and Multi Task Learning.
+  Contains the two versions of Testing Pipeline for Singular-Task Learning (STL) and Multi-Task Learning (MLT).
 
 - `Otto_TRACE/utils/`
   
   Contains six files for corresponding reasons
   - EarlyStopping: Stop training when a monitored metric F1 has stopped improving
-  - feature_engineering: This file presents the re-implementation of the TRACE feature engineering, as described in Section 2.2 of the original TRACE paper
-  - normalization: This file presents the re-implementation of TRACE for normalizating and log the time elapsed and time betwen from Section 2.2 of the original TRACE paper
+  - feature_engineering: This file presents the re-implementation of the TRACE feature engineering, as described in Section 2.2 (Feature and Position Encoding) of the original TRACE paper
+  - normalization: This file presents the re-implementation of TRACE for normalizating and log the time elapsed and time betwen from Section 2.2 (Feature and Position Encoding) of the original TRACE paper
   - plot_confussion_matrix: Script for Computing and Plotting the Confusion Matrix
   - SplitData: Script for splitting the dataset into training, validation, and test sets.
   - training_utils: Utility scripts designed to improve code readability, modularity, and maintainability.
