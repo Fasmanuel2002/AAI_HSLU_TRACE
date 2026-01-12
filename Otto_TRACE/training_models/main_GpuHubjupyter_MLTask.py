@@ -5,13 +5,11 @@ import torch.optim as optim
 from utils.SplitData import split_data_Train_Val_Test
 from torch.utils.tensorboard import SummaryWriter # type: ignore
 import torch.nn as nn
-from model.trace import TRACE
 from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
-from sklearn.metrics import f1_score
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratios_finder_multi_task, compute_f1_tasks
+from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratios_finder_multi_task, compute_f1_tasks, initialize_TRACE_model
 
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -29,27 +27,12 @@ def main():
     )
     train_loader, validation_loader, _ = split_data_Train_Val_Test(dataset_processed, batch_size=128)
     
-    max_aid = max(
-        session[0]["aid"].max().item()
-        for session in dataset_processed
-    )
-    max_type = max(
-        session[0]["type"].max().item()
-        for session in dataset_processed
-    )
-
-    num_embeddings_aid = max_aid + 1  
-    num_embeddings_event_type = max_type + 1
-    trace_model = TRACE(
-        num_embeddings_aid=num_embeddings_aid,
-        num_embeddings_event_type=num_embeddings_event_type,
-        embedding_dim=32,
-        num_classes=3
-    )  
-      
-
-    trace_model = trace_model.to(device)
+    trace_model = initialize_TRACE_model(dataset_processed, num_classes=3,device=device)
+    
+    
     optimizer = optim.AdamW(trace_model.parameters(), lr=1e-4, weight_decay=1e-4)
+    
+    #Learning Rate Scheduler
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
                                                         cooldown=1,
                                                         mode="max",
@@ -65,18 +48,18 @@ def main():
     tensor_board_writer = SummaryWriter(log_dir=f"runs/MLT_task_ATC_SAT_MAP/")
     
     
-
-    #Summary Writer for tensorBoard
     print("Started the Training")
     
     w_pos_ATC, w_pos_SAT, w_pos_MAP = ratios_finder_multi_task(train_loader, device)
 
     w_neg = torch.tensor([1.0], device=device).float()
+    
     criterion_validation = nn.BCEWithLogitsLoss()
     
     num_epochs = 40
 
     best_val_f1 = -1.0
+    
     best_global_thr = {"ATC": 0.5, "SAT": 0.5, "MAP": 0.5}
 
     for epoch in range(num_epochs):
@@ -107,8 +90,7 @@ def main():
     
 
         for inputs_train, targets_train in train_loader:
-
-           
+            
             target_train_ATC = targets_train["ATC"].unsqueeze(1).to(device).float()
             target_train_SAT = targets_train["SAT"].unsqueeze(1).to(device).float()
             target_train_MAP = targets_train["MAP"].unsqueeze(1).to(device).float()
@@ -206,6 +188,7 @@ def main():
 
                 delta_elapsed = get_elapsed_feature(inputs_val["timestamps"]).to(device).float()
                 delta_between = get_between_features(inputs_val["timestamps"]).to(device).float()
+                
                 logits_val = trace_model(
                     inputs_val["aid"],
                     inputs_val["type"],
@@ -305,9 +288,6 @@ def main():
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
     }, "Model_TRACE_MLT_ATC_SAT_MLP_FinalVersion_SingleTask.pt")
-
-
-
-        
+       
 if __name__ == "__main__":
     main()

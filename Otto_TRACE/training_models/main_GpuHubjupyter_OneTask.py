@@ -11,7 +11,7 @@ from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratio_finder_single_task
+from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratio_finder_single_task, initialize_TRACE_model
 import argparse
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -30,6 +30,7 @@ def main():
     
     args = parser_terminal.parse_args()
     task_train = args.task.upper()
+    
     print(f"\nTraining task selected: {task_train}")
     
     #DataSet    
@@ -43,30 +44,13 @@ def main():
     #Split the Data into Training_loader, Validation_loader and test_loaders
     train_loader, validation_loader, _ = split_data_Train_Val_Test(dataset_processed, batch_size=128)
     
-    #calling the max aid and type for combating the Out of Range Error -> Learning Embeddings
-    max_aid = max(
-        session[0]["aid"].max().item()
-        for session in dataset_processed
-    )
-    max_type = max(
-        session[0]["type"].max().item()
-        for session in dataset_processed
-    )
-    num_embeddings_aid = max_aid + 1  
-    num_embeddings_event_type = max_type + 1
     
-    #Initialize the Model TRACE(Model Architecture TRACE paper Part 2.3)
-    trace_model = TRACE(
-        num_embeddings_aid=num_embeddings_aid,
-        num_embeddings_event_type=num_embeddings_event_type,
-        embedding_dim=32,
-        num_classes=1
-    )  
     
-    trace_model = trace_model.to(device)
+    trace_model = initialize_TRACE_model(dataset_processed, num_classes=1, device=device)
     
     optimizer = optim.AdamW(trace_model.parameters(), lr=1e-4, weight_decay=1e-4)
     
+    #Learning Rate Scheduler
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
                                                         cooldown=1,
                                                         mode="max",
@@ -89,7 +73,8 @@ def main():
     w_pos, w_neg = ratio_finder_single_task(train_loader, task_train, device)
     print("w_pos and w_neg", w_pos, w_neg)
     criterion_validation = torch.nn.BCEWithLogitsLoss()
-    #Learning Rate Scheduler
+    
+    
     #To Save the Best F1 for the Model
     best_val_f1 = -1.0
     best_global_thr = 0.5
@@ -199,23 +184,17 @@ def main():
         #Generate 99 possible threshold values from 0.1 to 0.99 (steps of 0.01).
         thresholds = np.linspace(0.01, 0.99, 99)
        
-        best_f1,macro_f1, best_thr = search_best_f1_thr(val_probs, val_y_true, thresholds)
-        
-        #Looking for the Best F1 Score and threshold
-        val_f1 = best_f1
-        val_macro_f1 = macro_f1
-        threshold = best_thr
-        
+        val_f1,val_macro_f1, best_thr = search_best_f1_thr(val_probs, val_y_true, thresholds)
         
         # Generate final predictions using the newly discovered optimal threshold
-        val_pred = (val_probs >= threshold).astype(int)
+        val_pred = (val_probs >= best_thr).astype(int)
         
         # Calculate additional metrics Precision and Recall at this specific optimal threshold
         val_precision = precision_score(val_y_true, val_pred, zero_division=0)
         val_recall = recall_score(val_y_true, val_pred, zero_division=0)
         
         print(
-            f"Thr={threshold:.3f} | "
+            f"Thr={best_thr:.3f} | "
             f"P={val_precision:.3f} | "
             f"R={val_recall:.3f} | "
             f"F1={val_f1:.3f}"
@@ -227,20 +206,20 @@ def main():
         # we update the global "Best Model" variables to ensure we save the right threshold.
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
-            best_global_thr = threshold
+            best_global_thr = best_thr
     
         
         #Validation Loss
         val_loss /= len(validation_loader)
         
         #calculates the optimized Accuracy based on the best threshold found
-        val_acc_best_thr = ((val_probs >= threshold).astype(int) == val_y_true.astype(int)).mean()
+        val_acc_best_thr = ((val_probs >= best_thr).astype(int) == val_y_true.astype(int)).mean()
         
         #TensorBoard
         tensor_board_writer.add_scalar("Val/Loss", val_loss, epoch)
         tensor_board_writer.add_scalar("Val/Acc_best_thr", val_acc_best_thr, epoch)
         tensor_board_writer.add_scalar("Val/F1", val_f1, epoch)
-        tensor_board_writer.add_scalar("Val/Best_Threshold", threshold, epoch)
+        tensor_board_writer.add_scalar("Val/Best_Threshold", best_thr, epoch)
         tensor_board_writer.add_scalar("Val/Best_Global_Threshold", best_global_thr, epoch)
         tensor_board_writer.add_scalar("Val/Precision", val_precision, epoch)
         tensor_board_writer.add_scalar("Val/Recall", val_recall, epoch)
@@ -251,7 +230,7 @@ def main():
             f"Epoch [{epoch+1}/{num_epochs}] "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | Train F1: {train_f1:.4f} | "
             f"Val Loss: {val_loss:.4f} | Val F1: {val_f1:.4f} | "
-            f"BestThr: {threshold:.3f} | Val Acc best threshold: {val_acc_best_thr:.4f} "
+            f"BestThr: {best_thr:.3f} | Val Acc best threshold: {val_acc_best_thr:.4f} "
         )
 
         #Print the Current Learning rate after the Lr
