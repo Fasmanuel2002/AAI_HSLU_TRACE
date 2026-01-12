@@ -67,8 +67,9 @@ def main():
     
     print("Started the Training")
     
-    
+    #Computes the ratio between positive (1) and negative (0) samples for a single task.
     w_pos, w_neg = ratio_finder_single_task(train_loader, task_train, device)
+    
     print("w_pos and w_neg", w_pos, w_neg)
     criterion_validation = torch.nn.BCEWithLogitsLoss()
     

@@ -50,9 +50,8 @@ def main():
     
     print("Started the Training")
     
-    w_pos_ATC, w_pos_SAT, w_pos_MAP = ratios_finder_multi_task(train_loader, device)
+    w_pos_ATC, w_pos_SAT, w_pos_MAP, w_neg = ratios_finder_multi_task(train_loader, device)
 
-    w_neg = torch.tensor([1.0], device=device).float()
     
     criterion_validation = nn.BCEWithLogitsLoss()
     
