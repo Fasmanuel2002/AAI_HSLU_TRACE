@@ -131,7 +131,7 @@ def ratio_finder_single_task(train_loader : DataLoader, task_train : str , devic
 
 
 
-def ratios_finder_multi_task(train_loader : DataLoader, device: torch_device) -> Tuple[Tensor, Tensor, Tensor]: 
+def ratios_finder_multi_task(train_loader : DataLoader, device: torch_device) -> Tuple[Tensor, Tensor, Tensor, Tensor]: 
     """
     Computes the ratio between positive (1) and negative (0) samples for  Multi task Learning
     """
@@ -172,8 +172,9 @@ def ratios_finder_multi_task(train_loader : DataLoader, device: torch_device) ->
     w_pos_ATC = torch.tensor([ratio_ATC], device=device).float()
     w_pos_SAT = torch.tensor([ratio_SAT], device=device).float()
     w_pos_MAP = torch.tensor([ratio_MAP], device=device).float()
+    w_neg = torch.tensor([1.0], device=device).float()
     
-    return (w_pos_ATC, w_pos_SAT, w_pos_MAP)
+    return (w_pos_ATC, w_pos_SAT, w_pos_MAP, w_neg)
 
 def concate_probs_true(val_probs : List[Tensor] , val_true : List[Tensor]) -> Tuple:
     """
