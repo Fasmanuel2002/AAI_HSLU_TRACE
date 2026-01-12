@@ -11,7 +11,7 @@ from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true
+from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratio_finder_single_task
 import argparse
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -84,40 +84,17 @@ def main():
     
     
     print("Started the Training")
-    #Figthing Data Imbalanced
-    labels_list = []
-    for inputs, targets in train_loader:
-        assert task_train in targets, f"Unknown task: {task_train}"
-        labels_list.append(targets[task_train].view(-1)) #(Batch, )
-        
-    labels = torch.cat(labels_list, dim=0) #(N, )           
     
-    #Number of positives in the train_loader
-    num_pos = (labels == 1).sum().item()
     
-    #Number of Negatives in the train_loader
-    num_neg = (labels == 0).sum().item()
-    
-    ratio = num_neg / max(num_pos, 1)
-    ratio = min(ratio, 30.0)
-    
-    #smoothed_weight = torch.tensor([ratio], device=device)
-    
-    print("Train pos/neg:", num_pos, num_neg)
-    
-    ##adding for smoothing the weights only for Training 
-    #criterion_train = torch.nn.BCEWithLogitsLoss(pos_weight=smoothed_weight) 
-    
-    criterion_validation = torch.nn.BCEWithLogitsLoss()
-    
-    w_pos = torch.tensor([ratio], device=device).float() 
-    w_neg = torch.tensor([1.0], device=device).float()
-
+    w_pos, w_neg = ratio_finder_single_task(train_loader, task_train, device)
     print("w_pos and w_neg", w_pos, w_neg)
+    criterion_validation = torch.nn.BCEWithLogitsLoss()
     #Learning Rate Scheduler
     #To Save the Best F1 for the Model
     best_val_f1 = -1.0
     best_global_thr = 0.5
+    
+    
     
     
     num_epochs = 40

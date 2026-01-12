@@ -11,7 +11,7 @@ from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true
+from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratios_finder_multi_task, compute_f1_tasks
 
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -25,8 +25,9 @@ def main():
         file_name='train.jsonl',
         input_seq_len=64,
         min_timestamps_per_sample=32,
+        max_samples=200000
     )
-    train_loader, validation_loader, test_loader = split_data_Train_Val_Test(dataset_processed, batch_size=128)
+    train_loader, validation_loader, _ = split_data_Train_Val_Test(dataset_processed, batch_size=128)
     
     max_aid = max(
         session[0]["aid"].max().item()
@@ -67,46 +68,9 @@ def main():
 
     #Summary Writer for tensorBoard
     print("Started the Training")
-    labels_list_ATC = []
-    labels_list_SAT = []
-    labels_list_MAP = []
-    for inputs, targets in train_loader:
-        labels_list_ATC.append(targets["ATC"].view(-1)) #(Batch, )
-        labels_list_SAT.append(targets["SAT"].view(-1)) #(Batch, )
-        labels_list_MAP.append(targets["MAP"].view(-1)) # (Batch, )
-        
-    labels_ATC = torch.cat(labels_list_ATC, dim=0)
-    labels_SAT = torch.cat(labels_list_SAT, dim=0)
-    labels_MAP = torch.cat(labels_list_MAP,dim=0)
     
-    num_pos_ATC = (labels_ATC == 1).sum().item()
-    num_neg_ATC = (labels_ATC == 0).sum().item()
-    
-    num_pos_SAT = (labels_SAT == 1).sum().item()
-    num_neg_SAT = (labels_SAT == 0).sum().item()
-    
-    num_pos_MAP = (labels_MAP == 1).sum().item()
-    num_neg_MAP = (labels_MAP == 0).sum().item()
-    
-    
-    ratio_ATC = num_neg_ATC / max(num_pos_ATC, 1)
-    ratio_ATC = min(ratio_ATC, 30.0)
-    
-    
-    ratio_SAT = num_neg_SAT / max(num_pos_SAT, 1)
-    ratio_SAT = min(ratio_SAT, 30.0)
-    
-    ratio_MAP = num_neg_MAP / max(num_pos_MAP, 1)
-    ratio_MAP = min(ratio_MAP, 30.0)
-    
-    print("ATC Train pos/neg:", num_pos_ATC, num_neg_ATC)
-    print("SAT Train pos/neg:", num_pos_SAT, num_neg_SAT)
-    print("MAP Train pos/neg:", num_pos_MAP, num_neg_MAP)
-    
-    w_pos_ATC = torch.tensor([ratio_ATC], device=device).float()
-    w_pos_SAT = torch.tensor([ratio_SAT], device=device).float()
-    w_pos_MAP = torch.tensor([ratio_MAP], device=device).float()
-    
+    w_pos_ATC, w_pos_SAT, w_pos_MAP = ratios_finder_multi_task(train_loader, device)
+
     w_neg = torch.tensor([1.0], device=device).float()
     criterion_validation = nn.BCEWithLogitsLoss()
     
@@ -203,20 +167,13 @@ def main():
         
         
         #F1 Score for training ATC
-        train_y_true_ATC = torch.cat(train_y_true_ATC).numpy().ravel()
-        train_y_pred_ATC = torch.cat(train_y_pred_ATC).numpy().ravel()
-        train_f1_ATC = f1_score(train_y_true_ATC, train_y_pred_ATC, zero_division=0)
-        
+        train_f1_ATC = compute_f1_tasks(train_y_true_ATC, train_y_pred_ATC)
         
         #F1 Score for training SAT
-        train_y_true_SAT = torch.cat(train_y_true_SAT).numpy().ravel()
-        train_y_pred_SAT = torch.cat(train_y_pred_SAT).numpy().ravel()
-        train_f1_SAT = f1_score(train_y_true_SAT, train_y_pred_SAT, zero_division=0)
+        train_f1_SAT = compute_f1_tasks(train_y_true_SAT, train_y_pred_SAT)
         
         #F1 Score for training MAP
-        train_y_true_MAP = torch.cat(train_y_true_MAP).numpy().ravel()
-        train_y_pred_MAP = torch.cat(train_y_pred_MAP).numpy().ravel()
-        train_f1_MAP = f1_score(train_y_true_MAP, train_y_pred_MAP, zero_division=0)
+        train_f1_MAP = compute_f1_tasks(train_y_true_MAP, train_y_pred_MAP)
         
         #TensorBoard Writing
         tensor_board_writer.add_scalar("Training/Loss", train_loss, epoch)
@@ -287,24 +244,11 @@ def main():
         
         thresholds = np.linspace(0.01,0.99, 99)
         
-        best_f1_ATC, best_macro_f1_ATC, best_thr_ATC = search_best_f1_thr(val_probs_ATC, val_true_ATC, thresholds)
+        val_f1_ATC, val_macro_f1_ATC, threshold_ATC = search_best_f1_thr(val_probs_ATC, val_true_ATC, thresholds)
         
-        best_f1_SAT, best_macro_f1_SAT, best_thr_SAT = search_best_f1_thr(val_probs_SAT, val_true_SAT, thresholds)
+        val_f1_SAT, val_macro_f1_SAT, threshold_SAT = search_best_f1_thr(val_probs_SAT, val_true_SAT, thresholds)
         
-        best_f1_MAP, best_macro_f1_MAP, best_thr_MAP = search_best_f1_thr(val_probs_MAP, val_true_MAP, thresholds)
-        
-            
-        val_f1_ATC = best_f1_ATC
-        val_macro_f1_ATC = best_macro_f1_ATC
-        threshold_ATC = best_thr_ATC
-        
-        val_f1_SAT = best_f1_SAT
-        val_macro_f1_SAT = best_macro_f1_SAT
-        threshold_SAT = best_thr_SAT
-        
-        val_f1_MAP =  best_f1_MAP
-        val_macro_f1_MAP = best_macro_f1_MAP
-        threshold_MAP = best_thr_MAP
+        val_f1_MAP, val_macro_f1_MAP, threshold_MAP = search_best_f1_thr(val_probs_MAP, val_true_MAP, thresholds)
         
         val_f1_mean = (val_f1_ATC + val_f1_SAT + val_f1_MAP) / 3
         val_macro_f1_mean = (val_macro_f1_ATC + val_macro_f1_SAT + val_macro_f1_MAP) / 3
