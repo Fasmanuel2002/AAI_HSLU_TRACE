@@ -43,6 +43,8 @@ You need to visit the following website to download the dataset:
 
 Download the `train.jsonl` file, which contains approximately **11 GB** of training data.
 
+## Running the Project
+
 ## Repository Structure
 
 - `Otto_TRACE/dataset/`  
