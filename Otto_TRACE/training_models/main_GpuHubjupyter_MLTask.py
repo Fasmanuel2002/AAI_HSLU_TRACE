@@ -9,7 +9,7 @@ from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratios_finder_multi_task, compute_f1_tasks, initialize_TRACE_model
+from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratios_finder_multi_task, compute_f1_tasks, initialize_TRACE_model, concate_probs_true
 
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -214,28 +214,30 @@ def main():
                 append_probs_and_true(logits_MAP_val, target_val_MAP, val_probs_MAP, val_true_MAP)
          
          
-         
-        val_probs_ATC = torch.cat(val_probs_ATC).numpy().ravel()
-        val_true_ATC  = torch.cat(val_true_ATC).numpy().ravel()
-
-        val_probs_SAT = torch.cat(val_probs_SAT).numpy().ravel()
-        val_true_SAT  = torch.cat(val_true_SAT).numpy().ravel()
+        # ----Concatonate the Probabilities and true labels for ATC ----
+        val_probs_ATC, val_true_ATC = concate_probs_true(val_probs_ATC, val_true_ATC)
         
-        val_probs_MAP = torch.cat(val_probs_MAP).numpy().ravel()
-        val_true_MAP  = torch.cat(val_true_MAP).numpy().ravel()
-
+        # ----Concatonate the Probabilities and true labels for SAT ----
+        val_probs_SAT, val_true_SAT = concate_probs_true(val_probs_SAT, val_true_SAT)
         
+        # ----Concatonate the Probabilities and true labels for MAP----
+        val_probs_MAP, val_true_MAP = concate_probs_true(val_probs_MAP, val_true_MAP)
+        
+        #Generate 99 possible threshold values from 0.1 to 0.99 (steps of 0.01).
         thresholds = np.linspace(0.01,0.99, 99)
         
+        #Searches for the best binary f1, macro f1 and threshold for each task
         val_f1_ATC, val_macro_f1_ATC, threshold_ATC = search_best_f1_thr(val_probs_ATC, val_true_ATC, thresholds)
-        
         val_f1_SAT, val_macro_f1_SAT, threshold_SAT = search_best_f1_thr(val_probs_SAT, val_true_SAT, thresholds)
-        
         val_f1_MAP, val_macro_f1_MAP, threshold_MAP = search_best_f1_thr(val_probs_MAP, val_true_MAP, thresholds)
         
         val_f1_mean = (val_f1_ATC + val_f1_SAT + val_f1_MAP) / 3
         val_macro_f1_mean = (val_macro_f1_ATC + val_macro_f1_SAT + val_macro_f1_MAP) / 3
-
+        
+        
+        
+        # If the F1 score of this epoch is the best seen so far across all epochs,
+        # we update the global "Best Model" variables to ensure we save the right threshold.
         if val_f1_mean > best_val_f1:
             best_val_f1 = val_f1_mean
             best_global_thr = {"ATC": threshold_ATC, "SAT": threshold_SAT, "MAP": threshold_MAP}
@@ -244,6 +246,8 @@ def main():
         
         
         val_loss /= len(validation_loader)
+        
+        #calculates the optimized Accuracy based on the best threshold found for each TASK
         val_acc_best_thr_ATC = ((val_probs_ATC >= threshold_ATC).astype(int) == val_true_ATC.astype(int)).mean()
         val_acc_best_thr_SAT = ((val_probs_SAT >= threshold_SAT).astype(int) == val_true_SAT.astype(int)).mean()
         val_acc_best_thr_MAP = ((val_probs_MAP >= threshold_MAP).astype(int) == val_true_MAP.astype(int)).mean()
@@ -279,6 +283,7 @@ def main():
             break
 
     tensor_board_writer.close()
+    
     #Saves the Model CheckPoint if the JupyterGpuHub the session expires
     early_stopping.load_best_weights(trace_model)
     

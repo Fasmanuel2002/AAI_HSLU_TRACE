@@ -4,14 +4,12 @@ import torch
 import torch.optim as optim
 from utils.SplitData import split_data_Train_Val_Test
 from torch.utils.tensorboard import SummaryWriter # type: ignore
-
-from model.trace import TRACE
 from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import f1_score,precision_score,recall_score
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratio_finder_single_task, initialize_TRACE_model
+from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratio_finder_single_task, initialize_TRACE_model, compute_f1_tasks, concate_probs_true
 import argparse
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -137,9 +135,7 @@ def main():
         train_acc = correct_train / max(total_train, 1)
             
         #F1 Score for training
-        train_y_true = torch.cat(train_y_true).numpy().ravel()
-        train_y_pred = torch.cat(train_y_pred).numpy().ravel()
-        train_f1 = f1_score(train_y_true, train_y_pred, zero_division=0)
+        train_f1 = compute_f1_tasks(train_y_true, train_y_pred)
             
         #TensorBoard Writing
         tensor_board_writer.add_scalar("Train/F1", train_f1, epoch)
@@ -152,8 +148,6 @@ def main():
         #Initializing the validation variables    
         trace_model.eval()
         val_loss = 0.0
-            
-        
         
         with torch.no_grad():
             for inputs_val, targets_val in validation_loader:
@@ -178,13 +172,14 @@ def main():
                 append_probs_and_true(logits_val, target_val, val_probs, val_y_true)
     
         # ----Concatonate the Probabilities and true labels ----
-        val_y_true = torch.cat(val_y_true).numpy().ravel()
-        val_probs = torch.cat(val_probs).numpy().ravel()
-    
+        val_y_true , val_probs = concate_probs_true(val_y_true, val_probs)
+        
         #Generate 99 possible threshold values from 0.1 to 0.99 (steps of 0.01).
         thresholds = np.linspace(0.01, 0.99, 99)
-       
-        val_f1,val_macro_f1, best_thr = search_best_f1_thr(val_probs, val_y_true, thresholds)
+        
+        
+        #Searches for the best binary f1, macro f1 and threshold
+        val_f1, val_macro_f1, best_thr = search_best_f1_thr(val_probs, val_y_true, thresholds)
         
         # Generate final predictions using the newly discovered optimal threshold
         val_pred = (val_probs >= best_thr).astype(int)
@@ -254,12 +249,6 @@ def main():
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
     }, f"Model_TRACE_{task_train}_FinalVersion_SingleTask.pt")
-
-
-
-
-
-
 
 if __name__ == "__main__":
     main()
