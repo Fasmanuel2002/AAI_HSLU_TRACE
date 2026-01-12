@@ -44,6 +44,31 @@ You need to visit the following website to download the dataset:
 Download the `train.jsonl` file, which contains approximately **11 GB** of training data.
 
 ## Running the Project
+The project can be executed in two different training modes:
+Single-Task Learning (STL) and Multi-Task Learning (MTL)
+
+#### Single-Task Learning (STL)
+
+To run the model in Single-Task Learning mode, make sure you are located in the root directory of the Otto_TRACE project, and execute the following command:
+```bash
+python -m training_models.main_GpuHubjupyter_OneTask --task ATC
+```
+You can replace the ATC argument with other supported tasks:
+
+ATC – The user added two or more products to the cart within the session.
+
+SAT – The user viewed the same AID at least four times in a session.
+
+MAP – The user completed a purchase during the session.
+
+Each execution trains the model exclusively for the selected task.
+
+#### Multi-Task Learning (MLT)
+
+To run the model in Multi-Task Learning mode, make sure you are located in the root directory of the Otto_TRACE project, and execute the following command:
+```bash
+python -m training_models.main_GpuHubjupyter_MLTask  
+```
 
 ## Repository Structure
 
@@ -56,11 +81,11 @@ Download the `train.jsonl` file, which contains approximately **11 GB** of train
   
 - `Otto_TRACE/training_models/`
   
-  Contains the two versions of training pipeline for Singular-Task Learning (STL) and Multi-Task Learning (MLT), the purpose of this code format is for jupyterhub GPU.
+  Contains the two versions of training pipeline for Single-Task Learning (STL) and Multi-Task Learning (MLT), the purpose of this code format is for jupyterhub GPU.
 
 - `Otto_TRACE/test_models/`
   
-  Contains the two versions of Testing Pipeline for Singular-Task Learning (STL) and Multi-Task Learning (MLT).
+  Contains the two versions of Testing Pipeline for Single-Task Learning (STL) and Multi-Task Learning (MLT).
 
 - `Otto_TRACE/utils/`
   
