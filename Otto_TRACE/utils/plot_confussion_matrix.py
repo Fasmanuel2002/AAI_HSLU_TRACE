@@ -1,21 +1,37 @@
-import seaborn as sns
+import numpy as np
 import matplotlib.pyplot as plt
-from typing import List
+import seaborn as sns
 
 def plot_confusion_matrix(
     cm,
     name_task: str,
-    name_classes: List[str]):
-    """
-    Binary confusion matrix for task prediction (0 / 1).
-    """
-    fig, ax = plt.subplots(figsize=(3, 3))
+    name_classes: list,
+    save_path: str | None = None,
+    dpi: int = 400
+):
+  
 
+    cm = np.asarray(cm)
+    total = cm.sum()
+    cm_percent = (cm / total * 100) if total > 0 else np.zeros_like(cm)
+
+    labels = np.array([
+        [f"{int(cm[i, j])}\n({cm_percent[i, j]:.2f}%)"
+         for j in range(cm.shape[1])]
+        for i in range(cm.shape[0])
+    ])
+
+    fig, ax = plt.subplots(figsize=(5, 4.6))
     sns.heatmap(
         cm,
-        annot=True,
-        fmt="d",
-        cmap="Blues",
+        annot=labels,
+        fmt="",
+        cmap="BuGn",
+        square=True,
+        linewidths=0.8,
+        linecolor="white",
+        cbar=True,
+        cbar_kws={"label": "Samples"},
         xticklabels=name_classes,
         yticklabels=name_classes,
         ax=ax
@@ -23,6 +39,14 @@ def plot_confusion_matrix(
 
     ax.set_xlabel("Predicted label")
     ax.set_ylabel("True label")
-    ax.set_title(f"Confusion Matrix – {name_task}")
+    ax.set_title(f"Confusion Matrix – {name_task}\n(Count and % of total)", pad=12)
+    ax.tick_params(axis="x", rotation=0)
+    ax.tick_params(axis="y", rotation=0)
+
+    fig.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+        print(f"Saved to: {save_path} (dpi={dpi})")
 
     return fig
