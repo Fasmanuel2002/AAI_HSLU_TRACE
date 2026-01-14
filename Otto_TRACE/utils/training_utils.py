@@ -1,4 +1,4 @@
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, roc_auc_score, average_precision_score
 from typing import Tuple, List
 import torch
 from torch.utils.data import DataLoader
@@ -7,23 +7,26 @@ from model.trace import TRACE
 from dataset.otto_final import TraceOttoDataset
 from torch import device as torch_device
 
-def search_best_f1_thr(val_probs, val_true, thresholds) -> Tuple[float, float, float]: 
+def search_best_f1_thr(val_probs, val_true, thresholds) -> Tuple[float, float, float, float, float]: 
     """
     # Convert continuous probabilities [0, 1] into binary predictions [0 or 1]
     # based on the current threshold candidate 't'
     # If this threshold results in a better F1 score, update our best values
+    
     """
+    auroc = roc_auc_score(val_true, val_probs)
+    auprc = average_precision_score(val_true, val_probs)
+    
     best_thr, best_f1, best_macro_f1 = 0.5, 0.0, 0.0
     for t in thresholds:
         pred = (val_probs >= t).astype(int)
         f1 = f1_score(val_true, pred, zero_division=0)
         macro_f1 = f1_score(val_true, pred ,zero_division=0, average="macro")
-        
         if f1 > best_f1:
             best_f1 = f1
             best_thr = t
             best_macro_f1 = macro_f1
-    return float(best_f1), float(best_macro_f1), float(best_thr)
+    return float(best_f1), float(best_macro_f1), float(best_thr), float(auroc), float(auprc)
 
 
 def initialize_TRACE_model(dataset_processed : TraceOttoDataset, num_classes: int, device : torch_device) -> TRACE:
