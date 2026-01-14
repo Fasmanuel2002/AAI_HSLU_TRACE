@@ -3,14 +3,23 @@ import numpy as np
 import torch
 import torch.optim as optim
 from utils.SplitData import split_data_Train_Val_Test
+import argparse
 from torch.utils.tensorboard import SummaryWriter # type: ignore
 from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
-from sklearn.metrics import f1_score,precision_score,recall_score
+from sklearn.metrics import precision_score,recall_score
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratio_finder_single_task, initialize_TRACE_model, compute_f1_tasks, concate_probs_true
-import argparse
+
+from utils.training_utils import (search_best_f1_thr, 
+                                  update_binary_metrics, 
+                                  append_probs_and_true, 
+                                  ratio_finder_single_task, 
+                                  initialize_TRACE_model, 
+                                  compute_f1_tasks, 
+                                  concate_probs_true)
+
+
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -35,8 +44,8 @@ def main():
     dataset_processed = TraceOttoDataset(
         file_name='train.jsonl',
         input_seq_len=64,
-        min_timestamps_per_sample=16,
-        max_samples=100000
+        min_timestamps_per_sample=32,
+
     )
 
     #Split the Data into Training_loader, Validation_loader and test_loaders
@@ -69,9 +78,10 @@ def main():
     
     #Computes the ratio between positive (1) and negative (0) samples for a single task.
     w_pos, w_neg = ratio_finder_single_task(train_loader, task_train, device)
-    
     print("w_pos and w_neg", w_pos, w_neg)
+    
     criterion_validation = torch.nn.BCEWithLogitsLoss()
+    
     
     
     #To Save the Best F1 for the Model
@@ -180,7 +190,7 @@ def main():
         
         
         #Searches for the best binary f1, macro f1 and threshold
-        val_f1, val_macro_f1, best_thr = search_best_f1_thr(val_probs, val_y_true, thresholds)
+        val_f1, val_macro_f1, best_thr, val_auroc, val_auprc = search_best_f1_thr(val_probs, val_y_true, thresholds)
         
         # Generate final predictions using the newly discovered optimal threshold
         val_pred = (val_probs >= best_thr).astype(int)
@@ -195,6 +205,8 @@ def main():
             f"R={val_recall:.3f} | "
             f"F1={val_f1:.3f}"
             f"Macro F1={val_macro_f1:.3f}"
+            f"AUROC= {val_auroc}"
+            f"AUPRC = {val_auprc}"
         )
 
         
@@ -219,7 +231,9 @@ def main():
         tensor_board_writer.add_scalar("Val/Best_Global_Threshold", best_global_thr, epoch)
         tensor_board_writer.add_scalar("Val/Precision", val_precision, epoch)
         tensor_board_writer.add_scalar("Val/Recall", val_recall, epoch)
-
+        tensor_board_writer.add_scalar("Val/AUROC", val_auroc, epoch)
+        tensor_board_writer.add_scalar("Val/AUPRC", val_auprc, epoch)
+        val_loss /= len(validation_loader)
         lr_scheduler.step(val_f1)
                             
         print(

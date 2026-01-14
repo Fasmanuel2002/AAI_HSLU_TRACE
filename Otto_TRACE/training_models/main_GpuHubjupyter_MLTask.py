@@ -9,7 +9,13 @@ from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 import torch.nn.functional as F
-from utils.training_utils import search_best_f1_thr, update_binary_metrics, append_probs_and_true, ratios_finder_multi_task, compute_f1_tasks, initialize_TRACE_model, concate_probs_true
+from utils.training_utils import (search_best_f1_thr, 
+                                  update_binary_metrics, 
+                                  append_probs_and_true, 
+                                  ratios_finder_multi_task, 
+                                  initialize_TRACE_model, 
+                                  compute_f1_tasks, 
+                                  concate_probs_true)
 
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -226,13 +232,14 @@ def main():
         thresholds = np.linspace(0.01,0.99, 99)
         
         #Searches for the best binary f1, macro f1 and threshold for each task
-        val_f1_ATC, val_macro_f1_ATC, threshold_ATC = search_best_f1_thr(val_probs_ATC, val_true_ATC, thresholds)
-        val_f1_SAT, val_macro_f1_SAT, threshold_SAT = search_best_f1_thr(val_probs_SAT, val_true_SAT, thresholds)
-        val_f1_MAP, val_macro_f1_MAP, threshold_MAP = search_best_f1_thr(val_probs_MAP, val_true_MAP, thresholds)
+        val_f1_ATC, val_macro_f1_ATC, threshold_ATC, val_auroc_ATC, val_auprc_ATC = search_best_f1_thr(val_probs_ATC, val_true_ATC, thresholds)
+        val_f1_SAT, val_macro_f1_SAT, threshold_SAT, val_auroc_SAT, val_auprc_SAT = search_best_f1_thr(val_probs_SAT, val_true_SAT, thresholds)
+        val_f1_MAP, val_macro_f1_MAP, threshold_MAP, val_auroc_MAP, val_auprc_MAP  = search_best_f1_thr(val_probs_MAP, val_true_MAP, thresholds)
         
         val_f1_mean = (val_f1_ATC + val_f1_SAT + val_f1_MAP) / 3
         val_macro_f1_mean = (val_macro_f1_ATC + val_macro_f1_SAT + val_macro_f1_MAP) / 3
-        
+        val_auroc_mean = (val_auroc_ATC + val_auroc_SAT + val_auroc_MAP) / 3
+        val_auprc_mean = (val_auprc_ATC + val_auprc_SAT + val_auprc_MAP) / 3
         
         
         # If the F1 score of this epoch is the best seen so far across all epochs,
@@ -257,17 +264,28 @@ def main():
         tensor_board_writer.add_scalar("Val/SAT_F1", val_f1_SAT, epoch)
         tensor_board_writer.add_scalar("Val/MAP_F1", val_f1_MAP, epoch)
        
+        tensor_board_writer.add_scalar("Val/auroc_ATC", val_auroc_ATC, epoch)
+        tensor_board_writer.add_scalar("Val/auroc_SAT", val_auroc_SAT, epoch)
+        tensor_board_writer.add_scalar("Val/auroc_MAP", val_auroc_MAP, epoch)
+        
+        tensor_board_writer.add_scalar("Val/auprc_ATC", val_auprc_ATC, epoch)
+        tensor_board_writer.add_scalar("Val/auprc_SAT", val_auprc_SAT, epoch)
+        tensor_board_writer.add_scalar("Val/auprc_MAP", val_auprc_MAP, epoch)
+        
         tensor_board_writer.add_scalar("Val/Acc_ATC_best_thr", val_acc_best_thr_ATC, epoch)
         tensor_board_writer.add_scalar("Val/Acc_SAT_best_thr", val_acc_best_thr_SAT, epoch)
         tensor_board_writer.add_scalar("Val/Acc_MAP_best_thr", val_acc_best_thr_MAP, epoch)
         
-        tensor_board_writer.add_scalar("Val/f1_mean", val_f1_mean, epoch)
+        tensor_board_writer.add_scalar("Val/macro_f1_mean", val_macro_f1_mean, epoch)
+        tensor_board_writer.add_scalar("Val/auroc_mean", val_auroc_mean, epoch)
+        tensor_board_writer.add_scalar("Val/auprc_mean", val_auprc_mean, epoch)
+
 
         lr_scheduler.step(val_f1_mean)
         print(f"Epoch [{epoch+1}/{num_epochs}] | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
-        print(f"Train Acc ATC : {train_acc_ATC:.4f} | Train F1 ATC: {train_f1_ATC:.4f} | Val F1 ATC: {val_f1_ATC:.4f} | Val Macro F1 ATC {val_macro_f1_ATC} ")
-        print(f"Train Acc SAT : {train_acc_SAT:.4f} | Train F1 SAT: {train_f1_SAT:.4f} | Val F1 SAT: {val_f1_SAT:.4f} | Val Macro F1 SAT {val_macro_f1_SAT} ")
-        print(f"Train Acc MAP : {train_acc_MAP:.4f} | Train F1 MAP: {train_f1_MAP:.4f} | Val F1 MAP: {val_f1_MAP:.4f} | Val Macro F1 MAP {val_macro_f1_MAP} ")
+        print(f"Train Acc ATC : {train_acc_ATC:.4f} | Train F1 ATC: {train_f1_ATC:.4f} | Val F1 ATC: {val_f1_ATC:.4f} | Val Macro F1 ATC {val_macro_f1_ATC} | Val Auroc ATC: {val_auroc_ATC:.4f} | Val Auprc ATC {val_auprc_ATC} ")
+        print(f"Train Acc SAT : {train_acc_SAT:.4f} | Train F1 SAT: {train_f1_SAT:.4f} | Val F1 SAT: {val_f1_SAT:.4f} | Val Macro F1 SAT {val_macro_f1_SAT} | Val Auroc SAT: {val_auroc_SAT:.4f} | Val Auprc SAT {val_auprc_SAT}  ")
+        print(f"Train Acc MAP : {train_acc_MAP:.4f} | Train F1 MAP: {train_f1_MAP:.4f} | Val F1 MAP: {val_f1_MAP:.4f} | Val Macro F1 MAP {val_macro_f1_MAP} | Val Auroc MAP: {val_auroc_MAP:.4f} | Val Auprc MAP {val_auprc_MAP} ")
         print(f"Val F1 mean: {val_f1_mean:.4f}  | Val Macro F1: {val_macro_f1_mean:.4f}| Thr: ATC: {threshold_ATC:.2f}/SAT:{threshold_SAT:.2f} MAP:{threshold_MAP:.2f}/")
         
         #Print the Current Learning rate after the Lr
