@@ -39,7 +39,7 @@ class TRACE(nn.Module):
     def __init__(self, num_embeddings_aid : int, 
                  num_embeddings_event_type : int,
                  embedding_dim : int,
-                 num_classes : int = 4
+                 num_classes : int = 3
                ):
         
         super(TRACE, self).__init__()
@@ -56,7 +56,7 @@ class TRACE(nn.Module):
         self.positional_embedding = PositionalEncoding(d_model=self.D_model)
         
         self.encoder_layer = nn.TransformerEncoderLayer(d_model=self.D_model, 
-                                                        nhead=6, # 8
+                                                        nhead=6,
                                                         dim_feedforward=128,
                                                         dropout=0.2,
                                                         activation="relu",
