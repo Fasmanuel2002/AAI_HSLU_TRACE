@@ -75,10 +75,10 @@ class TraceOttoDataset(OttoDataSetSession):
     def __init__(self, 
                 file_name : str,
                 input_seq_len : int,
-                min_timestamps_per_sample : int = 16,
+                min_timestamps_per_sample : int = 32,
                 max_samples : Optional[int] = None,
-                split_min : float = 0.65,
-                split_max : float = 0.75,
+                split_min : float = 0.70,
+                split_max : float = 0.80,
                 ):
         super().__init__(file_name, min_timestamps_per_sample, max_samples)
         
@@ -123,10 +123,11 @@ class TraceOttoDataset(OttoDataSetSession):
             if len(session["timestamps"]) >= self.input_seq_len:
                 session_padded.append({
                     "session_id": session["session_id"],
-                    "aid": session["aid"][:self.input_seq_len],
-                    "timestamps": session["timestamps"][:self.input_seq_len],
-                    "type": session["type"][:self.input_seq_len]
+                    "aid": session["aid"][-self.input_seq_len:],
+                    "timestamps": session["timestamps"][-self.input_seq_len:],
+                    "type": session["type"][-self.input_seq_len:]
                 })
+
             else:
                 session_padded.append(TraceOttoDataset.__padding__(self.input_seq_len, session))
         return session_padded
