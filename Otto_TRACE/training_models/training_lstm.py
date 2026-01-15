@@ -12,11 +12,10 @@ from model.BaseModel_BI_LSTM import Bi_LSTM
 import torch.nn.functional as F
 from utils.training_utils import (search_best_f1_thr, 
                                   update_binary_metrics, 
-                                  append_probs_and_true, 
-                                  ratios_finder_multi_task, 
-                                  initialize_TRACE_model, 
+                                  append_probs_and_true,  
                                   compute_f1_tasks, 
                                   concate_probs_true)
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def main():
@@ -25,14 +24,13 @@ def main():
     dataset_processed = TraceOttoDataset(
         file_name='train.jsonl',
         input_seq_len=64,
-        min_timestamps_per_sample=32,
-        max_samples=200000
+        min_timestamps_per_sample=32
     )
     
 
     
     # En tu main
-    train_loader, val_loader, test_loader = split_data_Train_Val_Test_LSTM(
+    train_loader, val_loader, _ = split_data_Train_Val_Test_LSTM(
         data_set=dataset_processed,
         batch_size=128
     )
@@ -43,16 +41,26 @@ def main():
     
     
 
-    features, lengths, targets = next(iter(train_loader))
-    print(f"features shape: {features.shape}")      # [128, 64, 3]
-    print(f"lengths shape: {lengths.shape}")        # [128]
-    print(f"lengths sample: {lengths[:5]}")         # Primeros 5 lengths
-    print(f"ATC shape: {targets['ATC'].shape}")     # [128, 1]
-
+    inputs, lengths, targets = next(iter(train_loader))
+    print(inputs["aid"].shape, inputs["type"].shape, inputs["timestamps"].shape)
     
-        
+    
+    max_aid = max(
+        session[0]["aid"].max().item()
+        for session in dataset_processed
+    )
+    max_type = max(
+        session[0]["type"].max().item()
+        for session in dataset_processed
+    )
 
-    RNN_model = Bi_LSTM(input_size=3, hidden_size=128, num_layers=2).to(device)
+    num_embeddings_aid = max_aid + 1  
+    num_embeddings_event_type = max_type + 1
+    
+    
+    RNN_model = Bi_LSTM(num_embeddings_aid, num_embeddings_event_type, embedding_dim=32, hidden_size=128, num_layers=2).to(device)
+
+
     optimizer = optim.AdamW(RNN_model.parameters(), lr=1e-4, weight_decay=1e-4)
     
     #Learning Rate Scheduler
@@ -65,9 +73,9 @@ def main():
     early_stopping = EarlyStopping(patience=7,
                                    min_delta=1e-4,
                                    mode="max",
-                                   path=f"Model_TRACE_checkpoint_ATC_task.pt")
+                                   path=f"Model_BILSTM_checkpoint_MLT.pt")
     #Summary Writer for tensorBoard
-    tensor_board_writer = SummaryWriter(log_dir=f"runs/MLT_task_ATC_SAT_MAP/")
+    tensor_board_writer = SummaryWriter(log_dir=f"runs/RNN_MLT_task_ATC_SAT_MAP/")
     print("Started the Training")
     
     
@@ -112,17 +120,16 @@ def main():
     best_global_thr = {"ATC": 0.5, "SAT": 0.5, "MAP": 0.5}
 
     for epoch in range(num_epochs):
-        #F1 Score for Training ATC
         train_y_true_ATC = []
         train_y_pred_ATC = []
 
         #F1 Score training for SAT
         train_y_true_SAT = []
         train_y_pred_SAT = []
-        
         #F1 Score for Training MAP
         train_y_true_MAP = []
         train_y_pred_MAP = []
+            
         
         
         #--------------------------TRAINING-----------------------
@@ -138,16 +145,26 @@ def main():
         total_train_MAP = 0
     
 
-        for features, lengths, targets_train in train_loader:
-            features = features.to(device)
-            lengths = lengths.to(device)
-            
- 
+        for inputs_train, lengths_train, targets_train in train_loader:
+            inputs_train = {k: v.to(device) for k, v in inputs_train.items()}
+            lengths_train = lengths_train.to(device)
+
             target_train_ATC = targets_train["ATC"].to(device).float()
             target_train_SAT = targets_train["SAT"].to(device).float()
             target_train_MAP = targets_train["MAP"].to(device).float()
+            
+            B, L = inputs_train["aid"].shape
+            delta_elapsed, delta_between = build_time_feats(inputs_train["timestamps"], L)
 
-            logits_train = RNN_model(features, lengths)
+            
+            
+            logits_train = RNN_model(
+                inputs_train["aid"].long(),
+                inputs_train["type"].long(),
+                delta_elapsed,
+                delta_between,
+                lengths_train
+            )
 
             pred_ATC = logits_train["ATC"]  
             pred_SAT = logits_train["SAT"]  
@@ -160,7 +177,8 @@ def main():
             loss_ATC = F.binary_cross_entropy_with_logits(pred_ATC, target_train_ATC, weight=weights_ATC)
             loss_SAT = F.binary_cross_entropy_with_logits(pred_SAT, target_train_SAT, weight=weights_SAT)
             loss_MAP = F.binary_cross_entropy_with_logits(pred_MAP, target_train_MAP, weight=weights_MAP)
-            optimizer.zero_grad()
+            
+            optimizer.zero_grad(set_to_none=True)
             
             loss_training = (loss_ATC + loss_SAT + loss_MAP) 
             
@@ -176,6 +194,7 @@ def main():
             correct_train_SAT, total_train_SAT = update_binary_metrics(pred_SAT, target_train_SAT, correct_train_SAT, total_train_SAT, train_y_true_SAT, train_y_pred_SAT)
             # ============ MAP ===========
             correct_train_MAP, total_train_MAP = update_binary_metrics(pred_MAP, target_train_MAP, correct_train_MAP, total_train_MAP, train_y_true_MAP,train_y_pred_MAP)
+            
         train_loss = epoch_loss / len(train_loader)
 
         train_acc_ATC = correct_train_ATC / max(total_train_ATC, 1)
@@ -210,23 +229,29 @@ def main():
 
 
         with torch.no_grad():
-            for features, lengths, targets_val in val_loader:
-                features = features.to(device)
-                lengths = lengths.to(device)
-            
+            for inputs_val, lengths_val, targets_val in val_loader:
+                inputs_val = {k: v.to(device) for k, v in inputs_val.items()}
+                lengths_val = lengths_val.to(device)
 
                 target_val_ATC = targets_val["ATC"].to(device).float()
                 target_val_SAT = targets_val["SAT"].to(device).float()
                 target_val_MAP = targets_val["MAP"].to(device).float()
+                B, L = inputs_val["aid"].shape
+                delta_elapsed, delta_between = build_time_feats(inputs_val["timestamps"], L)
                 
-                
-                logits_val = RNN_model(features, lengths)
+                logits_val = RNN_model(
+                    inputs_val["aid"].long(),
+                    inputs_val["type"].long(),
+                    delta_elapsed,
+                    delta_between,
+                    lengths_val
+                )
 
                 logits_ATC_val = logits_val["ATC"]  
                 logits_SAT_val = logits_val["SAT"]  
                 logits_MAP_val = logits_val["MAP"]
-                
-                
+                    
+                    
                 loss_ATC_val = criterion_validation(logits_ATC_val, target_val_ATC)
                 loss_SAT_val = criterion_validation(logits_SAT_val, target_val_SAT)
                 loss_MAP_val = criterion_validation(logits_MAP_val, target_val_MAP)
@@ -329,6 +354,29 @@ def main():
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
     }, "Model_BI_LSTM_MLT_ATC_SAT_MLP_FinalVersion.pt")
+
+
+
+def build_time_feats(timestamps, L):
+    """
+    Ensure that time features have dimension (B, L, 1) so that they can be concatenated with embeddings and fed into BiLSTM without dimension errors.
+    """
+    B = timestamps.shape[0]
+    de = get_elapsed_feature(timestamps).float().to(timestamps.device)
+    db = get_between_features(timestamps).float().to(timestamps.device)
+
+    if de.dim() == 1:
+        de = de.view(B, 1, 1).expand(B, L, 1)
+    elif de.dim() == 2:
+        de = de.unsqueeze(-1) if de.shape[1] != 1 else de.view(B, 1, 1).expand(B, L, 1)
+
+    if db.dim() == 2:
+        db = db.unsqueeze(-1)
+    if db.shape[1] == L - 1:
+        db = torch.cat([db, db[:, -1:, :]], dim=1)
+
+    return de, db
+
        
         
     
