@@ -28,8 +28,7 @@ def main():
     dataset_processed = TraceOttoDataset(
         file_name='train.jsonl',
         input_seq_len=64,
-        min_timestamps_per_sample=32,
-        max_samples=200000
+        min_timestamps_per_sample=32
     )
     train_loader, validation_loader, _ = split_data_Train_Val_Test(dataset_processed, batch_size=128)
     
