@@ -9,11 +9,16 @@ def plot_confusion_matrix(
     save_path: str | None = None,
     dpi: int = 400
 ):
-  
-
     cm = np.asarray(cm)
-    total = cm.sum()
-    cm_percent = (cm / total * 100) if total > 0 else np.zeros_like(cm)
+
+    # Normalize by rows (true labels)
+    row_sums = cm.sum(axis=1, keepdims=True)
+    cm_percent = np.divide(
+        cm,
+        row_sums,
+        out=np.zeros_like(cm, dtype=float),
+        where=row_sums != 0
+    ) * 100
 
     labels = np.array([
         [f"{int(cm[i, j])}\n({cm_percent[i, j]:.2f}%)"
@@ -39,7 +44,10 @@ def plot_confusion_matrix(
 
     ax.set_xlabel("Predicted label")
     ax.set_ylabel("True label")
-    ax.set_title(f"Confusion Matrix – {name_task}\n(Count and % of total)", pad=12)
+    ax.set_title(
+        f"Confusion Matrix – {name_task}\n(Row-normalized: % per true class)",
+        pad=12
+    )
     ax.tick_params(axis="x", rotation=0)
     ax.tick_params(axis="y", rotation=0)
 
