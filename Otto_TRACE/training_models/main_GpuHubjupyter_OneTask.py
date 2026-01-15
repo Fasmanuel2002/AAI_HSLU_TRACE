@@ -10,7 +10,7 @@ from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
 from sklearn.metrics import precision_score,recall_score
 import torch.nn.functional as F
-
+import os
 from utils.training_utils import (search_best_f1_thr, 
                                   update_binary_metrics, 
                                   append_probs_and_true, 
@@ -29,6 +29,7 @@ def main():
     print("Beginning")
     parser_terminal = argparse.ArgumentParser(description="Train TRACE model for specific task")
     
+    os.makedirs("Final_Version", exist_ok=True)
     parser_terminal.add_argument("--task", 
                                  type=str, 
                                  default="ATC",
@@ -203,10 +204,10 @@ def main():
             f"Thr={best_thr:.3f} | "
             f"P={val_precision:.3f} | "
             f"R={val_recall:.3f} | "
-            f"F1={val_f1:.3f}"
-            f"Macro F1={val_macro_f1:.3f}"
-            f"AUROC= {val_auroc}"
-            f"AUPRC = {val_auprc}"
+            f"F1={val_f1:.3f} | "
+            f"Macro F1={val_macro_f1:.3f} |"
+            f"AUROC= {val_auroc} |"
+            f"AUPRC = {val_auprc} |"
         )
 
         
@@ -233,7 +234,6 @@ def main():
         tensor_board_writer.add_scalar("Val/Recall", val_recall, epoch)
         tensor_board_writer.add_scalar("Val/AUROC", val_auroc, epoch)
         tensor_board_writer.add_scalar("Val/AUPRC", val_auprc, epoch)
-        val_loss /= len(validation_loader)
         lr_scheduler.step(val_f1)
                             
         print(
@@ -263,7 +263,7 @@ def main():
         "model_state_dict": trace_model.state_dict(),
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
-    }, f"Model_TRACE_{task_train}_FinalVersion_SingleTask.pt")
+    }, f"Final_Version/Model_TRACE_{task_train}_FinalVersion_SingleTask.pt")
 
 if __name__ == "__main__":
     main()

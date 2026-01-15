@@ -2,12 +2,13 @@ import os
 import numpy as np
 import torch
 import torch.optim as optim
-from utils.SplitData import split_data_Train_Val_Test
+from utils.SplitData import split_data_Train_Val_Test_LSTM
 from torch.utils.tensorboard import SummaryWriter # type: ignore
 import torch.nn as nn
 from dataset.otto_final import TraceOttoDataset
 from utils.feature_engineering import get_between_features, get_elapsed_feature
 from utils.EarlyStopping import EarlyStopping
+from model.BaseModel_BI_LSTM import Bi_LSTM
 import torch.nn.functional as F
 from utils.training_utils import (search_best_f1_thr, 
                                   update_binary_metrics, 
@@ -16,13 +17,9 @@ from utils.training_utils import (search_best_f1_thr,
                                   initialize_TRACE_model, 
                                   compute_f1_tasks, 
                                   concate_probs_true)
-
-
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def main():
-    
     print("Beginning")
     #DataSet    
     dataset_processed = TraceOttoDataset(
@@ -31,12 +28,32 @@ def main():
         min_timestamps_per_sample=32,
         max_samples=200000
     )
-    train_loader, validation_loader, _ = split_data_Train_Val_Test(dataset_processed, batch_size=128)
     
-    trace_model = initialize_TRACE_model(dataset_processed, num_classes=3,device=device)
+
+    
+    # En tu main
+    train_loader, val_loader, test_loader = split_data_Train_Val_Test_LSTM(
+        data_set=dataset_processed,
+        batch_size=128
+    )
+    
+    labels_list_ATC = []
+    labels_list_SAT = []
+    labels_list_MAP = []
     
     
-    optimizer = optim.AdamW(trace_model.parameters(), lr=1e-4, weight_decay=1e-4)
+
+    features, lengths, targets = next(iter(train_loader))
+    print(f"features shape: {features.shape}")      # [128, 64, 3]
+    print(f"lengths shape: {lengths.shape}")        # [128]
+    print(f"lengths sample: {lengths[:5]}")         # Primeros 5 lengths
+    print(f"ATC shape: {targets['ATC'].shape}")     # [128, 1]
+
+    
+        
+
+    RNN_model = Bi_LSTM(input_size=3, hidden_size=128, num_layers=2).to(device)
+    optimizer = optim.AdamW(RNN_model.parameters(), lr=1e-4, weight_decay=1e-4)
     
     #Learning Rate Scheduler
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
@@ -49,14 +66,41 @@ def main():
                                    min_delta=1e-4,
                                    mode="max",
                                    path=f"Model_TRACE_checkpoint_ATC_task.pt")
-    
     #Summary Writer for tensorBoard
     tensor_board_writer = SummaryWriter(log_dir=f"runs/MLT_task_ATC_SAT_MAP/")
-    
-    
     print("Started the Training")
     
-    w_pos_ATC, w_pos_SAT, w_pos_MAP, w_neg = ratios_finder_multi_task(train_loader, device)
+    
+    for _, _, targets in train_loader:  
+        labels_list_ATC.append(targets["ATC"].view(-1))  # (Batch, )
+        labels_list_SAT.append(targets["SAT"].view(-1))  # (Batch, )
+        labels_list_MAP.append(targets["MAP"].view(-1))  # (Batch, )
+        
+    labels_ATC = torch.cat(labels_list_ATC, dim=0)
+    labels_SAT = torch.cat(labels_list_SAT, dim=0)
+    labels_MAP = torch.cat(labels_list_MAP, dim=0)
+    
+    num_pos_ATC = (labels_ATC == 1).sum().item()
+    num_neg_ATC = (labels_ATC == 0).sum().item()
+    
+    num_pos_SAT = (labels_SAT == 1).sum().item()
+    num_neg_SAT = (labels_SAT == 0).sum().item()
+    
+    num_pos_MAP = (labels_MAP == 1).sum().item()
+    num_neg_MAP = (labels_MAP == 0).sum().item()
+    
+    ratio_ATC = num_neg_ATC / max(num_pos_ATC, 1)
+    ratio_SAT = num_neg_SAT / max(num_pos_SAT, 1)
+    ratio_MAP = num_neg_MAP / max(num_pos_MAP, 1)
+    
+    print("ATC Train pos/neg:", num_pos_ATC, num_neg_ATC)
+    print("SAT Train pos/neg:", num_pos_SAT, num_neg_SAT)
+    print("MAP Train pos/neg:", num_pos_MAP, num_neg_MAP)
+    
+    w_pos_ATC = torch.tensor([ratio_ATC], device=device).float()
+    w_pos_SAT = torch.tensor([ratio_SAT], device=device).float()
+    w_pos_MAP = torch.tensor([ratio_MAP], device=device).float()
+    w_neg = torch.tensor([1.0], device=device).float()
 
     
     criterion_validation = nn.BCEWithLogitsLoss()
@@ -79,10 +123,10 @@ def main():
         #F1 Score for Training MAP
         train_y_true_MAP = []
         train_y_pred_MAP = []
-            
         
-        # -------------------------------TRAINING ---------------------------
-        trace_model.train()
+        
+        #--------------------------TRAINING-----------------------
+        RNN_model.train()
         epoch_loss = 0.0
 
         correct_train_ATC = 0
@@ -94,32 +138,20 @@ def main():
         total_train_MAP = 0
     
 
-        for inputs_train, targets_train in train_loader:
+        for features, lengths, targets_train in train_loader:
+            features = features.to(device)
+            lengths = lengths.to(device)
             
-            target_train_ATC = targets_train["ATC"].unsqueeze(1).to(device).float()
-            target_train_SAT = targets_train["SAT"].unsqueeze(1).to(device).float()
-            target_train_MAP = targets_train["MAP"].unsqueeze(1).to(device).float()
-            
-   
-            inputs_train = {
-                k: v.to(device)
-                for k, v in inputs_train.items()
-            }
+ 
+            target_train_ATC = targets_train["ATC"].to(device).float()
+            target_train_SAT = targets_train["SAT"].to(device).float()
+            target_train_MAP = targets_train["MAP"].to(device).float()
 
-            delta_elapsed = get_elapsed_feature(inputs_train["timestamps"]).to(device).float()
-            delta_between = get_between_features(inputs_train["timestamps"]).to(device).float()
+            logits_train = RNN_model(features, lengths)
 
-            logits_train = trace_model(
-                inputs_train["aid"],
-                inputs_train["type"],
-                delta_elapsed,
-                delta_between
-            )
-
-            pred_ATC = logits_train[:, 0:1] #ATC
-            pred_SAT = logits_train[:, 1:2] #SAT
-            pred_MAP = logits_train[:, 2:3] #MAP
-            
+            pred_ATC = logits_train["ATC"]  
+            pred_SAT = logits_train["SAT"]  
+            pred_MAP = logits_train["MAP"]
             
             weights_ATC = torch.where(target_train_ATC == 1.0, w_pos_ATC, w_neg)
             weights_SAT = torch.where(target_train_SAT == 1.0, w_pos_SAT, w_neg)
@@ -144,8 +176,6 @@ def main():
             correct_train_SAT, total_train_SAT = update_binary_metrics(pred_SAT, target_train_SAT, correct_train_SAT, total_train_SAT, train_y_true_SAT, train_y_pred_SAT)
             # ============ MAP ===========
             correct_train_MAP, total_train_MAP = update_binary_metrics(pred_MAP, target_train_MAP, correct_train_MAP, total_train_MAP, train_y_true_MAP,train_y_pred_MAP)
-            
-            
         train_loss = epoch_loss / len(train_loader)
 
         train_acc_ATC = correct_train_ATC / max(total_train_ATC, 1)
@@ -171,55 +201,45 @@ def main():
         tensor_board_writer.add_scalar("Train/F1_SAT", train_f1_SAT, epoch)
         tensor_board_writer.add_scalar("Train/F1_MAP", train_f1_MAP, epoch)
         
-
         # -------------------------------VALIDATION---------------------------
-        trace_model.eval()
+        RNN_model.eval()
         val_loss = 0.0
         val_probs_ATC, val_true_ATC = [], []
         val_probs_SAT, val_true_SAT = [], []
         val_probs_MAP, val_true_MAP = [], []
 
+
         with torch.no_grad():
-            for inputs_val, targets_val in validation_loader:
-
-                target_val_ATC = targets_val["ATC"].unsqueeze(1).to(device).float()
-                target_val_SAT = targets_val["SAT"].unsqueeze(1).to(device).float()
-                target_val_MAP = targets_val["MAP"].unsqueeze(1).to(device).float()
-        
-                inputs_val = {
-                    k: v.to(device)
-                    for k, v in inputs_val.items()
-                }
-
-                delta_elapsed = get_elapsed_feature(inputs_val["timestamps"]).to(device).float()
-                delta_between = get_between_features(inputs_val["timestamps"]).to(device).float()
-                
-                logits_val = trace_model(
-                    inputs_val["aid"],
-                    inputs_val["type"],
-                    delta_elapsed,
-                    delta_between
-                )
-
-                logits_ATC_val = logits_val[:, 0:1]
-                logits_SAT_val = logits_val[:, 1:2]
-                logits_MAP_val = logits_val[:, 2:3]
+            for features, lengths, targets_val in val_loader:
+                features = features.to(device)
+                lengths = lengths.to(device)
             
+
+                target_val_ATC = targets_val["ATC"].to(device).float()
+                target_val_SAT = targets_val["SAT"].to(device).float()
+                target_val_MAP = targets_val["MAP"].to(device).float()
+                
+                
+                logits_val = RNN_model(features, lengths)
+
+                logits_ATC_val = logits_val["ATC"]  
+                logits_SAT_val = logits_val["SAT"]  
+                logits_MAP_val = logits_val["MAP"]
+                
                 
                 loss_ATC_val = criterion_validation(logits_ATC_val, target_val_ATC)
                 loss_SAT_val = criterion_validation(logits_SAT_val, target_val_SAT)
                 loss_MAP_val = criterion_validation(logits_MAP_val, target_val_MAP)
-            
-                
+        
+
                 loss_validation = (loss_ATC_val + loss_SAT_val + loss_MAP_val)
                 val_loss += loss_validation.item()
 
                 append_probs_and_true(logits_ATC_val, target_val_ATC, val_probs_ATC, val_true_ATC)
                 append_probs_and_true(logits_SAT_val, target_val_SAT, val_probs_SAT, val_true_SAT)
                 append_probs_and_true(logits_MAP_val, target_val_MAP, val_probs_MAP, val_true_MAP)
-         
-         
-        # ----Concatonate the Probabilities and true labels for ATC ----
+                
+            # ----Concatonate the Probabilities and true labels for ATC ----
         val_probs_ATC, val_true_ATC = concate_probs_true(val_probs_ATC, val_true_ATC)
         
         # ----Concatonate the Probabilities and true labels for SAT ----
@@ -247,12 +267,10 @@ def main():
         if val_f1_mean > best_val_f1:
             best_val_f1 = val_f1_mean
             best_global_thr = {"ATC": threshold_ATC, "SAT": threshold_SAT, "MAP": threshold_MAP}
-
         
+        val_loss /= len(val_loader)
         
-        
-        val_loss /= len(validation_loader)
-        
+            
         #calculates the optimized Accuracy based on the best threshold found for each TASK
         val_acc_best_thr_ATC = ((val_probs_ATC >= threshold_ATC).astype(int) == val_true_ATC.astype(int)).mean()
         val_acc_best_thr_SAT = ((val_probs_SAT >= threshold_SAT).astype(int) == val_true_SAT.astype(int)).mean()
@@ -294,22 +312,25 @@ def main():
         print(f"This is the LR: {current_lr}")
         
 
-        early_stopping(float(val_f1_mean), trace_model)
+        early_stopping(float(val_f1_mean), RNN_model)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
 
+        
     tensor_board_writer.close()
     
     #Saves the Model CheckPoint if the JupyterGpuHub the session expires
-    early_stopping.load_best_weights(trace_model)
+    early_stopping.load_best_weights(RNN_model)
     
     #Save the total Model after the training
     torch.save({
-        "model_state_dict": trace_model.state_dict(),
+        "model_state_dict": RNN_model.state_dict(),
         "best_val_f1": best_val_f1,
         "best_global_threshold": best_global_thr,
-    }, "Model_TRACE_MLT_ATC_SAT_MLP_FinalVersion.pt")
+    }, "Model_BI_LSTM_MLT_ATC_SAT_MLP_FinalVersion.pt")
        
+        
+    
 if __name__ == "__main__":
     main()
