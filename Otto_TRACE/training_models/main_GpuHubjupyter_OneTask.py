@@ -46,6 +46,7 @@ def main():
         file_name='train.jsonl',
         input_seq_len=64,
         min_timestamps_per_sample=32,
+        max_samples=800000
 
     )
 
@@ -206,8 +207,8 @@ def main():
             f"R={val_recall:.3f} | "
             f"F1={val_f1:.3f} | "
             f"Macro F1={val_macro_f1:.3f} |"
-            f"AUROC= {val_auroc} |"
-            f"AUPRC = {val_auprc} |"
+            f" AUROC= {val_auroc} |"
+            f" AUPRC = {val_auprc} |"
         )
 
         
