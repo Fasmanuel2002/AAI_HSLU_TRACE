@@ -11,7 +11,7 @@ def plot_confusion_matrix(
 ):
     cm = np.asarray(cm)
 
-    # Normalize by rows (true labels)
+    # Row normalization 
     row_sums = cm.sum(axis=1, keepdims=True)
     cm_percent = np.divide(
         cm,
@@ -27,8 +27,9 @@ def plot_confusion_matrix(
     ])
 
     fig, ax = plt.subplots(figsize=(5, 4.6))
+
     sns.heatmap(
-        cm,
+        cm_percent,               
         annot=labels,
         fmt="",
         cmap="BuGn",
@@ -36,7 +37,8 @@ def plot_confusion_matrix(
         linewidths=0.8,
         linecolor="white",
         cbar=True,
-        cbar_kws={"label": "Samples"},
+        vmin=0, vmax=100,         
+        cbar_kws={"label": "Percentage (%)"},
         xticklabels=name_classes,
         yticklabels=name_classes,
         ax=ax
@@ -48,6 +50,7 @@ def plot_confusion_matrix(
         f"Confusion Matrix – {name_task}\n(Row-normalized: % per true class)",
         pad=12
     )
+
     ax.tick_params(axis="x", rotation=0)
     ax.tick_params(axis="y", rotation=0)
 
