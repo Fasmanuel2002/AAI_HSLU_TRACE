@@ -1,15 +1,31 @@
+#We use pythin
 FROM python:3.11-slim
+
+# 2. Interrupt the .pyc and the buffer saturate
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 WORKDIR /app
 
-RUN pip install --upgrade pip
+# We install the dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+
+RUN pip install --no-cache-dir --upgrade pip
+
 
 COPY requirements.txt .
 
+#The version of the requirements
 RUN pip install --no-cache-dir -r requirements.txt
+
 
 COPY . .
 
-ENV PYTHONPATH=/app
 
+# 8. Ejecución
 ENTRYPOINT ["python", "main.py"]
